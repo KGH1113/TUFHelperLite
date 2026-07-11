@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using TUFHelperLite.Domain.Jobs;
 using TUFHelperLite.Domain.Levels;
@@ -342,7 +344,9 @@ public static class LevelJobService
 
   private static string BuildUrlCacheKey(string url)
   {
-    return $"url-{(url ?? "").GetHashCode()}";
+    using SHA256 sha256 = SHA256.Create();
+    byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(url ?? ""));
+    return $"url-{BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant()}";
   }
 
   private static string FirstNonEmpty(params string[] values)
