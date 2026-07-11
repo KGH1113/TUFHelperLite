@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using TUFHelperLite.Domain.Jobs;
 using TUFHelperLite.Domain.Levels;
@@ -14,11 +13,23 @@ namespace TUFHelperLite.App;
 
 public static class LevelJobService
 {
+  private sealed class QueuedWork
+  {
+    public QueuedWork(DownloadJob job, Action action)
+    {
+      Job = job;
+      Action = action;
+    }
+
+    public DownloadJob Job { get; }
+    public Action Action { get; }
+  }
+
   private static readonly object Lock = new();
   private static readonly Dictionary<string, DownloadJob> Jobs = new();
-  private static readonly Queue<DownloadJob> Queue = new();
-  private static readonly SemaphoreSlim Slots = new(1, 1);
+  private static readonly Queue<QueuedWork> Queue = new();
   private static string _autoOpenJobId;
+  private static bool _workerRunning;
 
   public static DownloadJobSnapshot StartOpenFromId(string id, bool openAfterDownload)
   {
@@ -164,16 +175,58 @@ public static class LevelJobService
   {
     lock (Lock)
     {
-      Queue.Enqueue(job);
+      Queue.Enqueue(new QueuedWork(job, action));
       RecalculateQueuePositions();
+      if (_workerRunning) return;
+
+      _workerRunning = true;
     }
 
-    Task.Run(() => RunQueued(job, action));
+    Task.Run(RunWorker);
   }
 
-  private static async Task RunQueued(DownloadJob job, Action action)
+  private static void RunWorker()
   {
-    await Slots.WaitAsync();
+    while (true)
+    {
+      QueuedWork work;
+
+      lock (Lock)
+      {
+        work = NextQueuedWork();
+        if (work == null)
+        {
+          _workerRunning = false;
+          return;
+        }
+
+        RecalculateQueuePositions();
+      }
+
+      RunQueued(work);
+    }
+  }
+
+  private static QueuedWork NextQueuedWork()
+  {
+    while (Queue.Count > 0)
+    {
+      QueuedWork work = Queue.Dequeue();
+      if (work.Job.IsQueued && !work.Job.Token.IsCancellationRequested)
+      {
+        work.Job.SetQueuePosition(0);
+        return work;
+      }
+
+      ReleaseAutoOpen(work.Job);
+    }
+
+    return null;
+  }
+
+  private static void RunQueued(QueuedWork work)
+  {
+    DownloadJob job = work.Job;
 
     try
     {
@@ -183,14 +236,8 @@ public static class LevelJobService
         return;
       }
 
-      lock (Lock)
-      {
-        RemoveFromQueue(job);
-        RecalculateQueuePositions();
-      }
-
       job.BeginRunning();
-      action();
+      work.Action();
     }
     catch (OperationCanceledException)
     {
@@ -205,7 +252,6 @@ public static class LevelJobService
     }
     finally
     {
-      Slots.Release();
       lock (Lock)
       {
         RecalculateQueuePositions();
@@ -221,25 +267,12 @@ public static class LevelJobService
     }
   }
 
-  private static void RemoveFromQueue(DownloadJob target)
-  {
-    int count = Queue.Count;
-
-    for (int i = 0; i < count; i++)
-    {
-      DownloadJob job = Queue.Dequeue();
-      if (job.JobId != target.JobId && job.IsQueued && !job.Token.IsCancellationRequested)
-      {
-        Queue.Enqueue(job);
-      }
-    }
-  }
-
   private static void RecalculateQueuePositions()
   {
     int position = 1;
-    foreach (DownloadJob job in Queue)
+    foreach (QueuedWork work in Queue)
     {
+      DownloadJob job = work.Job;
       if (!job.IsQueued || job.Token.IsCancellationRequested)
       {
         job.SetQueuePosition(-1);
