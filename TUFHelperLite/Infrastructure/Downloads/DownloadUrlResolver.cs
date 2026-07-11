@@ -10,19 +10,20 @@ public static class DownloadUrlResolver
   {
     try
     {
+      DownloadUrlPolicy.Validate(url);
+      string resolvedUrl;
+
       if (url.Contains("cdn.discordapp.com"))
       {
-        return url.Replace("cdn.discordapp.com", "fixcdn.hyonsu.com");
+        resolvedUrl = url.Replace("cdn.discordapp.com", "fixcdn.hyonsu.com");
       }
-
-      if (url.StartsWith("https://drive.google.com/file/d/") ||
+      else if (url.StartsWith("https://drive.google.com/file/d/") ||
           url.StartsWith("https://drive.google.com/open?id=") ||
           url.StartsWith("https://drive.google.com/u/0/uc"))
       {
-        return ResolveGoogleDrive(url, client);
+        resolvedUrl = ResolveGoogleDrive(url, client);
       }
-
-      if (url.StartsWith("https://www.mediafire.com"))
+      else if (url.StartsWith("https://www.mediafire.com"))
       {
         string html = client.DownloadString(url);
         int start = html.IndexOf("https://download", StringComparison.Ordinal);
@@ -33,26 +34,28 @@ public static class DownloadUrlResolver
           throw new InvalidOperationException("MediaFire direct URL was not found.");
         }
 
-        return html.Substring(start, end - start);
+        resolvedUrl = html.Substring(start, end - start);
       }
-
-      if (url.StartsWith("https://www.dropbox.com"))
+      else if (url.StartsWith("https://www.dropbox.com"))
       {
         string id = StringUtil.GetValue(url, "https://www.dropbox.com/s/", "?");
-        return $"https://www.dropbox.com/s/{id}?dl=1";
+        resolvedUrl = $"https://www.dropbox.com/s/{id}?dl=1";
       }
-
-      if (url.StartsWith("https://drive.google.com/drive/folders/"))
+      else if (url.StartsWith("https://drive.google.com/drive/folders/"))
       {
         throw new NotSupportedException("Google Drive folders are not supported directly.");
       }
-
-      if (url.StartsWith("https://steamcommunity.com/"))
+      else if (url.StartsWith("https://steamcommunity.com/"))
       {
         throw new NotSupportedException("Steam Workshop links are not supported directly.");
       }
+      else
+      {
+        resolvedUrl = url;
+      }
 
-      return url;
+      DownloadUrlPolicy.Validate(resolvedUrl);
+      return resolvedUrl;
     }
     catch (Exception e)
     {

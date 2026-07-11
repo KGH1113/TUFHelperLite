@@ -259,6 +259,7 @@ public static class LevelArchiveDownloader
 
     protected override WebRequest GetWebRequest(Uri address)
     {
+      DownloadUrlPolicy.Validate(address);
       WebRequest request = base.GetWebRequest(address);
 
       if (request is HttpWebRequest httpRequest)
