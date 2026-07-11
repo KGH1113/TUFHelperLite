@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using TUFHelperLite.Domain.Levels;
 
 namespace TUFHelperLite.Infrastructure.Downloads;
@@ -53,47 +53,43 @@ public static class LevelArchiveDownloader
     string directUrl = DownloadUrlResolver.Resolve(url, client);
 
     if (Directory.Exists(extractPath)) Directory.Delete(extractPath, true);
-    Directory.CreateDirectory(extractPath);
+    if (File.Exists(zipPath)) File.Delete(zipPath);
 
-    client.DownloadProgressChanged += (_, args) =>
+    try
     {
+      DownloadArchive(client, directUrl, zipPath, cancellationToken, onProgress);
+
+      cancellationToken.ThrowIfCancellationRequested();
+
       onProgress?.Invoke(new LevelDownloadProgress
       {
-        Stage = "downloading",
-        Progress = args.TotalBytesToReceive > 0 ? args.BytesReceived / (double)args.TotalBytesToReceive : -1,
-        BytesReceived = args.BytesReceived,
-        TotalBytes = args.TotalBytesToReceive,
-        Message = "Downloading level archive"
+        Stage = "extracting",
+        Progress = -1,
+        Message = "Extracting level archive"
       });
-    };
 
-    byte[] zipBytes;
-    using (cancellationToken.Register(client.CancelAsync))
-    {
-      zipBytes = client.DownloadDataTaskAsync(directUrl).GetAwaiter().GetResult();
+      ZipExtractor.Extract(zipPath, extractPath, cancellationToken);
+
+      onProgress?.Invoke(new LevelDownloadProgress
+      {
+        Stage = "scanning",
+        Progress = -1,
+        Message = "Finding .adofai files"
+      });
+
+      DirectoryFlattener.MoveLastDirectoryFilesToRoot(extractPath, extractPath);
+
+      return CreateResult(url, directUrl, extractPath, false);
     }
-
-    cancellationToken.ThrowIfCancellationRequested();
-
-    onProgress?.Invoke(new LevelDownloadProgress
+    catch
     {
-      Stage = "extracting",
-      Progress = -1,
-      Message = "Extracting level archive"
-    });
-
-    ZipExtractor.Extract(zipBytes, extractPath);
-
-    onProgress?.Invoke(new LevelDownloadProgress
+      TryDeleteDirectory(extractPath);
+      throw;
+    }
+    finally
     {
-      Stage = "scanning",
-      Progress = -1,
-      Message = "Finding .adofai files"
-    });
-
-    DirectoryFlattener.MoveLastDirectoryFilesToRoot(extractPath, extractPath);
-
-    return CreateResult(url, directUrl, extractPath, false);
+      TryDeleteFile(zipPath);
+    }
   }
 
   public static string[] GetDownloadedLevelIds()
@@ -156,6 +152,100 @@ public static class LevelArchiveDownloader
       .Where(file => !Path.GetFileName(file).ToLowerInvariant().Contains("backup"))
       .OrderByDescending(file => new FileInfo(file).Length)
       .ToList();
+  }
+
+  private static void DownloadArchive(
+    CookieWebClient client,
+    string directUrl,
+    string zipPath,
+    CancellationToken cancellationToken,
+    Action<LevelDownloadProgress> onProgress)
+  {
+    const int bufferSize = 128 * 1024;
+    const long diskCheckInterval = 64L * 1024 * 1024;
+    byte[] buffer = new byte[bufferSize];
+    long bytesReceived = 0;
+    long nextDiskCheck = diskCheckInterval;
+    Stopwatch progressTimer = Stopwatch.StartNew();
+
+    try
+    {
+      using CancellationTokenRegistration registration = cancellationToken.Register(client.CancelAsync);
+      using Stream input = client.OpenReadTaskAsync(directUrl).GetAwaiter().GetResult();
+      using FileStream output = new(zipPath, FileMode.Create, FileAccess.Write, FileShare.None);
+      long totalBytes = ReadContentLength(client);
+      int bytesRead;
+
+      while ((bytesRead = input.Read(buffer, 0, buffer.Length)) > 0)
+      {
+        cancellationToken.ThrowIfCancellationRequested();
+        output.Write(buffer, 0, bytesRead);
+        bytesReceived = checked(bytesReceived + bytesRead);
+
+        if (bytesReceived >= nextDiskCheck)
+        {
+          ZipExtractor.EnsureDiskReserve(zipPath);
+          nextDiskCheck = checked(bytesReceived + diskCheckInterval);
+        }
+
+        if (progressTimer.ElapsedMilliseconds >= 100)
+        {
+          ReportDownloadProgress(onProgress, bytesReceived, totalBytes);
+          progressTimer.Restart();
+        }
+      }
+
+      ReportDownloadProgress(onProgress, bytesReceived, totalBytes);
+    }
+    catch (WebException) when (cancellationToken.IsCancellationRequested)
+    {
+      throw new OperationCanceledException(cancellationToken);
+    }
+  }
+
+  private static long ReadContentLength(WebClient client)
+  {
+    string value = client.ResponseHeaders?[HttpResponseHeader.ContentLength];
+    return long.TryParse(value, out long length) && length > 0 ? length : -1;
+  }
+
+  private static void ReportDownloadProgress(
+    Action<LevelDownloadProgress> onProgress,
+    long bytesReceived,
+    long totalBytes)
+  {
+    onProgress?.Invoke(new LevelDownloadProgress
+    {
+      Stage = "downloading",
+      Progress = totalBytes > 0 ? bytesReceived / (double)totalBytes : -1,
+      BytesReceived = bytesReceived,
+      TotalBytes = totalBytes,
+      Message = "Downloading level archive"
+    });
+  }
+
+  private static void TryDeleteDirectory(string path)
+  {
+    try
+    {
+      if (Directory.Exists(path)) Directory.Delete(path, true);
+    }
+    catch (Exception e)
+    {
+      Main.Instance?.Warning($"Failed to clean partial download directory: {e.Message}");
+    }
+  }
+
+  private static void TryDeleteFile(string path)
+  {
+    try
+    {
+      if (File.Exists(path)) File.Delete(path);
+    }
+    catch (Exception e)
+    {
+      Main.Instance?.Warning($"Failed to clean temporary archive: {e.Message}");
+    }
   }
 
   private sealed class CookieWebClient : WebClient
