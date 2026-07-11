@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <AdofaiDir Condition="'$(AdofaiDir)' == '' and '$(ADOFAI_DIR)' != ''">$(ADOFAI_DIR)</AdofaiDir>
+    <AdofaiDir Condition="'$(AdofaiDir)' == ''">$(HOME)/Library/Application Support/Steam/steamapps/common/A Dance of Fire and Ice</AdofaiDir>
+
+    <AdofaiManaged Condition="'$(AdofaiManaged)' == '' and '$(ADOFAI_MANAGED)' != ''">$(ADOFAI_MANAGED)</AdofaiManaged>
+    <AdofaiManaged Condition="'$(AdofaiManaged)' == ''">$(AdofaiDir)/ADanceOfFireAndIce.app/Contents/Resources/Data/Managed</AdofaiManaged>
+
+    <AdofaiMods Condition="'$(AdofaiMods)' == '' and '$(ADOFAI_MODS_DIR)' != ''">$(ADOFAI_MODS_DIR)</AdofaiMods>
+    <AdofaiMods Condition="'$(AdofaiMods)' == ''">$(AdofaiDir)/Mods</AdofaiMods>
+
+    <UnityModManagerDll Condition="'$(UnityModManagerDll)' == ''">$(AdofaiManaged)/UnityModManager/UnityModManager.dll</UnityModManagerDll>
+    <HarmonyDll Condition="'$(HarmonyDll)' == ''">$(AdofaiManaged)/UnityModManager/0Harmony.dll</HarmonyDll>
+  </PropertyGroup>
+</Project>

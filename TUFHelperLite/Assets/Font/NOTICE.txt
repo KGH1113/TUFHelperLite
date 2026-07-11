@@ -1,0 +1,8 @@
+MapleStory Typeface
+
+Copyright NEXON Korea Corporation. All rights reserved.
+Source: https://maplestory.nexon.com/Media/Font
+
+The MapleStory typeface is provided free of charge for personal and commercial use.
+It may be bundled or embedded when this copyright notice is included. The font itself
+must not be sold, modified, or redistributed as a standalone paid product.

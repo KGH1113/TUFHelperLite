@@ -1,0 +1,25 @@
+# Compile File
+*.dll
+bin/
+obj/
+build/
+
+# Library
+packages/
+
+# Local Environment
+.env
+
+# macOS Finder Cache
+.DS_Store
+
+# Unity generated files
+TUFHelperLite.Unity/[Ll]ibrary/
+TUFHelperLite.Unity/[Tt]emp/
+TUFHelperLite.Unity/[Oo]bj/
+TUFHelperLite.Unity/[Bb]uild/
+TUFHelperLite.Unity/[Bb]uilds/
+TUFHelperLite.Unity/[Ll]ogs/
+TUFHelperLite.Unity/[Uu]ser[Ss]ettings/
+TUFHelperLite.Unity/MemoryCaptures/
+TUFHelperLite.Unity/Recordings/

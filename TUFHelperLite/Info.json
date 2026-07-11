@@ -1,0 +1,9 @@
+{
+  "Id": "TUFHelperLite",
+  "DisplayName": "TUFHelperLite",
+  "Author": "impl",
+  "Version": "0.1.0",
+  "AssemblyName": "AdofaiIpc.Bootstrap.dll",
+  "EntryMethod": "AdofaiIpc.Bootstrap.Bootstrap.Load",
+  "LoadAfter": ["AdofaiIpc"]
+}

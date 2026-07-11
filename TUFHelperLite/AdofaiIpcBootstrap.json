@@ -1,0 +1,7 @@
+{
+  "AssemblyName": "TUFHelperLite.dll",
+  "EntryMethod": "TUFHelperLite.Main.Load",
+  "MinimumAdofaiIpcVersion": "0.1.0",
+  "DownloadUrl": "https://github.com/KGH1113/adofai-ipc/releases/latest/download/AdofaiIpc.zip",
+  "ChecksumUrl": "https://github.com/KGH1113/adofai-ipc/releases/latest/download/AdofaiIpc.zip.sha256"
+}
