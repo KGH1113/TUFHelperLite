@@ -13,6 +13,8 @@ namespace TUFHelperLite.App;
 
 public static class LevelJobService
 {
+  private const int MaxRetainedTerminalJobs = 100;
+
   private sealed class QueuedWork
   {
     public QueuedWork(DownloadJob job, Action action)
@@ -100,6 +102,7 @@ public static class LevelJobService
   {
     lock (Lock)
     {
+      PruneTerminalJobs();
       return Jobs.Values
         .OrderBy(job => job.CreatedAtUnixMs)
         .Select(job => job.Snapshot())
@@ -132,6 +135,7 @@ public static class LevelJobService
     }
 
     ReleaseAutoOpen(job);
+    PruneTerminalJobs();
     return true;
   }
 
@@ -147,6 +151,7 @@ public static class LevelJobService
     if (!job.SelectLevel(levelPath)) return false;
     LevelOpenService.Open(levelPath);
     ReleaseAutoOpen(job);
+    PruneTerminalJobs();
     return true;
   }
 
@@ -255,6 +260,7 @@ public static class LevelJobService
       lock (Lock)
       {
         RecalculateQueuePositions();
+        PruneTerminalJobs();
       }
     }
   }
@@ -280,6 +286,24 @@ public static class LevelJobService
       }
 
       job.SetQueuePosition(position++);
+    }
+  }
+
+  private static void PruneTerminalJobs()
+  {
+    lock (Lock)
+    {
+      string[] expiredJobIds = Jobs.Values
+        .Where(job => job.IsDone)
+        .OrderByDescending(job => job.CreatedAtUnixMs)
+        .Skip(MaxRetainedTerminalJobs)
+        .Select(job => job.JobId)
+        .ToArray();
+
+      foreach (string jobId in expiredJobIds)
+      {
+        Jobs.Remove(jobId);
+      }
     }
   }
 
