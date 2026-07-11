@@ -22,6 +22,8 @@ UNITY_MOD_MANAGER_DLL="${UNITY_MOD_MANAGER_DLL:-$ADOFAI_MANAGED/UnityModManager/
 HARMONY_DLL="${HARMONY_DLL:-$ADOFAI_MANAGED/UnityModManager/0Harmony.dll}"
 ADOFAIIPC_DLL="${ADOFAIIPC_DLL:-$ADOFAI_MODS_DIR/AdofaiIpc/AdofaiIpc.dll}"
 ADOFAIIPC_BOOTSTRAP_DLL="${ADOFAIIPC_BOOTSTRAP_DLL:-$ADOFAI_MODS_DIR/AdofaiIpc/AdofaiIpc.Bootstrap.dll}"
+ADOFAIIPC_INFO_JSON="${ADOFAIIPC_INFO_JSON:-$ADOFAI_MODS_DIR/AdofaiIpc/Info.json}"
+ADOFAIIPC_BOOTSTRAP_LOCK="$PROJECT/TUFHelperLite/AdofaiIpcBootstrap.lock"
 
 project_path() {
   case "$1" in
@@ -57,12 +59,32 @@ require_command() {
 }
 
 require_command zip
+require_command shasum
 require_file "$DOTNET_EXE"
 require_dir "$ADOFAI_MANAGED"
 require_file "$UNITY_MOD_MANAGER_DLL"
 require_file "$HARMONY_DLL"
 require_file "$ADOFAIIPC_DLL"
 require_file "$ADOFAIIPC_BOOTSTRAP_DLL"
+require_file "$ADOFAIIPC_INFO_JSON"
+require_file "$ADOFAIIPC_BOOTSTRAP_LOCK"
+
+# shellcheck disable=SC1090
+source "$ADOFAIIPC_BOOTSTRAP_LOCK"
+
+installed_ipc_version="$(sed -n 's/.*"Version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ADOFAIIPC_INFO_JSON" | head -n 1)"
+if [ "$installed_ipc_version" != "$ADOFAIIPC_VERSION" ]; then
+  echo "AdofaiIpc version mismatch: expected $ADOFAIIPC_VERSION, found ${installed_ipc_version:-unknown}" >&2
+  exit 1
+fi
+
+bootstrap_sha256="$(shasum -a 256 "$ADOFAIIPC_BOOTSTRAP_DLL" | awk '{print $1}')"
+if [ "$bootstrap_sha256" != "$ADOFAIIPC_BOOTSTRAP_SHA256" ]; then
+  echo "AdofaiIpc Bootstrap checksum mismatch." >&2
+  echo "Expected: $ADOFAIIPC_BOOTSTRAP_SHA256" >&2
+  echo "Actual:   $bootstrap_sha256" >&2
+  exit 1
+fi
 
 DOTNET_ROOT="$DOTNET_ROOT" DOTNET_ROOT_ARM64="$DOTNET_ROOT_ARM64" \
 "$DOTNET_EXE" build "$PROJECT/TUFHelperLite/TUFHelperLite.csproj" \
