@@ -27,9 +27,8 @@ public static class LevelJobService
     DownloadJob existing = FindActiveByCacheKey(cacheKey);
     if (existing != null) return existing.Snapshot();
 
-    bool shouldOpen = ReserveAutoOpen(openAfterDownload);
-    DownloadJob job = Add(new DownloadJob("level.open-from-id", normalizedId, null, cacheKey, shouldOpen));
-    AssignAutoOpenJob(job, shouldOpen);
+    DownloadJob job = Add("level.open-from-id", normalizedId, null, cacheKey, openAfterDownload);
+    bool shouldOpen = job.OpenAfterDownload;
     Enqueue(job, () =>
     {
       job.Report("resolving", $"Resolving TUF level #{normalizedId}");
@@ -51,9 +50,8 @@ public static class LevelJobService
     DownloadJob existing = FindActiveByCacheKey(cacheKey);
     if (existing != null) return existing.Snapshot();
 
-    bool shouldOpen = ReserveAutoOpen(openAfterDownload);
-    DownloadJob job = Add(new DownloadJob("level.open-from-url", null, url, cacheKey, shouldOpen));
-    AssignAutoOpenJob(job, shouldOpen);
+    DownloadJob job = Add("level.open-from-url", null, url, cacheKey, openAfterDownload);
+    bool shouldOpen = job.OpenAfterDownload;
     Enqueue(job, () =>
     {
       LevelDownloadResult result = LevelArchiveDownloader.Download(url, job.CacheKey, job.Token, job.Report);
@@ -69,7 +67,7 @@ public static class LevelJobService
     DownloadJob existing = FindActiveByCacheKey(cacheKey);
     if (existing != null) return existing.Snapshot();
 
-    DownloadJob job = Add(new DownloadJob("level.download", levelId, url, cacheKey, false));
+    DownloadJob job = Add("level.download", levelId, url, cacheKey, false);
     Enqueue(job, () =>
     {
         LevelDownloadResult result = LevelArchiveDownloader.Download(url, job.CacheKey, job.Token, job.Report);
@@ -113,13 +111,17 @@ public static class LevelJobService
 
   public static bool Cancel(string jobId)
   {
+    DownloadJob job;
+
     lock (Lock)
     {
-      if (!Jobs.TryGetValue(jobId ?? "", out DownloadJob job)) return false;
+      if (!Jobs.TryGetValue(jobId ?? "", out job)) return false;
       job.Cancel();
       RecalculateQueuePositions();
-      return true;
     }
+
+    ReleaseAutoOpen(job);
+    return true;
   }
 
   public static bool SelectLevel(string jobId, string levelPath)
@@ -137,11 +139,23 @@ public static class LevelJobService
     return true;
   }
 
-  private static DownloadJob Add(DownloadJob job)
+  private static DownloadJob Add(
+    string kind,
+    string levelId,
+    string sourceUrl,
+    string cacheKey,
+    bool requestAutoOpen)
   {
     lock (Lock)
     {
+      bool shouldOpen = requestAutoOpen && _autoOpenJobId == null;
+      DownloadJob job = new(kind, levelId, sourceUrl, cacheKey, shouldOpen);
       Jobs[job.JobId] = job;
+      if (shouldOpen)
+      {
+        _autoOpenJobId = job.JobId;
+      }
+
       return job;
     }
   }
@@ -163,7 +177,11 @@ public static class LevelJobService
 
     try
     {
-      if (job.Token.IsCancellationRequested) return;
+      if (job.Token.IsCancellationRequested)
+      {
+        ReleaseAutoOpen(job);
+        return;
+      }
 
       lock (Lock)
       {
@@ -177,10 +195,12 @@ public static class LevelJobService
     catch (OperationCanceledException)
     {
       job.Cancel();
+      ReleaseAutoOpen(job);
     }
     catch (Exception e)
     {
       job.Fail(e);
+      ReleaseAutoOpen(job);
       Main.Instance?.LogException(e);
     }
     finally
@@ -276,27 +296,6 @@ public static class LevelJobService
     }
 
     return null;
-  }
-
-  private static bool ReserveAutoOpen(bool requested)
-  {
-    if (!requested) return false;
-
-    lock (Lock)
-    {
-      if (_autoOpenJobId != null) return false;
-      return true;
-    }
-  }
-
-  private static void AssignAutoOpenJob(DownloadJob job, bool shouldOpen)
-  {
-    if (!shouldOpen) return;
-
-    lock (Lock)
-    {
-      _autoOpenJobId = job.JobId;
-    }
   }
 
   private static void ReleaseAutoOpen(DownloadJob job)
