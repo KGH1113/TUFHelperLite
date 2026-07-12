@@ -37,8 +37,8 @@ public static class LevelJobService
 
   public static DownloadJobSnapshot StartOpenFromId(string id, bool openAfterDownload)
   {
-    string normalizedId = NormalizeLevelId(id);
-    string cacheKey = $"tuf-{normalizedId}";
+    string normalizedId = DownloadCachePaths.NormalizeLevelId(id);
+    string cacheKey = DownloadCachePaths.BuildTufCacheKey(normalizedId);
     DownloadJob existing = FindActiveByCacheKey(cacheKey);
     if (existing != null) return existing.Snapshot();
 
@@ -78,7 +78,9 @@ public static class LevelJobService
 
   public static DownloadJobSnapshot StartDownload(string url, string levelId)
   {
-    string cacheKey = string.IsNullOrWhiteSpace(levelId) ? BuildUrlCacheKey(url) : $"tuf-{NormalizeLevelId(levelId)}";
+    string cacheKey = string.IsNullOrWhiteSpace(levelId)
+      ? BuildUrlCacheKey(url)
+      : DownloadCachePaths.BuildTufCacheKey(levelId);
     DownloadJob existing = FindActiveByCacheKey(cacheKey);
     if (existing != null) return existing.Snapshot();
 
@@ -335,11 +337,6 @@ public static class LevelJobService
 
     job.Complete(result, opened);
     ReleaseAutoOpen(job);
-  }
-
-  private static string NormalizeLevelId(string id)
-  {
-    return (id ?? "").Trim().TrimStart('#');
   }
 
   private static string BuildUrlCacheKey(string url)

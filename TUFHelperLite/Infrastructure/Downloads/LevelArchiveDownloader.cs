@@ -23,7 +23,7 @@ public static class LevelArchiveDownloader
       throw new ArgumentException("Download URL is required.", nameof(url));
     }
 
-    string downloadRoot = GetDownloadRoot();
+    string downloadRoot = DownloadCachePaths.GetDownloadRoot();
     string key = SanitizeCacheKey(cacheKey);
     string extractPath = Path.Combine(downloadRoot, key);
     string zipPath = extractPath + ".zip";
@@ -94,7 +94,7 @@ public static class LevelArchiveDownloader
 
   public static string[] GetDownloadedLevelIds()
   {
-    string downloadRoot = GetDownloadRoot();
+    string downloadRoot = DownloadCachePaths.GetDownloadRoot();
     if (!Directory.Exists(downloadRoot)) return Array.Empty<string>();
 
     return Directory.GetDirectories(downloadRoot, "tuf-*", SearchOption.TopDirectoryOnly)
@@ -121,17 +121,6 @@ public static class LevelArchiveDownloader
       LevelPaths = levelPaths,
       FromCache = fromCache
     };
-  }
-
-  private static string GetDownloadRoot()
-  {
-    string modPath = Main.Instance?.ModEntry?.Path;
-    if (string.IsNullOrWhiteSpace(modPath))
-    {
-      modPath = AppDomain.CurrentDomain.BaseDirectory;
-    }
-
-    return Path.Combine(modPath, "Downloads");
   }
 
   private static string SanitizeCacheKey(string cacheKey)
