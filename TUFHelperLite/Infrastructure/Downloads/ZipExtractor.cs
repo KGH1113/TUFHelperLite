@@ -10,7 +10,6 @@ internal static class ZipExtractor
 {
   private const int MaxEntryCount = 50000;
   private const int MaxPathDepth = 32;
-  private const long MinimumDiskReserveBytes = 1L * 1024 * 1024 * 1024;
   private const long ExpansionAllowanceBytes = 1L * 1024 * 1024 * 1024;
   private const long DiskCheckIntervalBytes = 64L * 1024 * 1024;
   private const int MaxExpansionRatio = 200;
@@ -87,7 +86,8 @@ internal static class ZipExtractor
 
         if (totalWritten >= nextDiskCheck)
         {
-          EnsureDiskReserve(destinationRoot);
+          long remainingBytes = DiskSpacePolicy.CalculateRemainingBytes(plan.TotalLength, totalWritten);
+          EnsureAvailableSpace(destinationRoot, remainingBytes);
           nextDiskCheck = checked(totalWritten + DiskCheckIntervalBytes);
         }
       }
@@ -96,12 +96,15 @@ internal static class ZipExtractor
 
   internal static void EnsureDiskReserve(string path)
   {
-    DriveInfo drive = GetDrive(path);
-    long reserve = Math.Max(MinimumDiskReserveBytes, drive.TotalSize / 20);
-    if (drive.AvailableFreeSpace <= reserve)
-    {
-      throw new IOException("Not enough free disk space to safely continue the archive operation.");
-    }
+    EnsureAvailableSpace(path, 0);
+  }
+
+  internal static void EnsureAvailableSpace(string path, long requiredBytes)
+  {
+    DiskSpacePolicy.EnsureSufficientSpace(
+      path,
+      requiredBytes,
+      "Not enough free disk space to safely continue the archive operation.");
   }
 
   private static ExtractionPlan ValidateArchive(ZipArchive archive, long archiveLength, string destinationRoot)
@@ -131,14 +134,12 @@ internal static class ZipExtractor
       throw new InvalidDataException("Archive declares an unsafe compression expansion ratio.");
     }
 
-    DriveInfo drive = GetDrive(destinationRoot);
-    long reserve = Math.Max(MinimumDiskReserveBytes, drive.TotalSize / 20);
-    if (totalLength > Math.Max(0, drive.AvailableFreeSpace - reserve))
-    {
-      throw new IOException("Not enough free disk space to extract this archive safely.");
-    }
+    DiskSpacePolicy.EnsureSufficientSpace(
+      destinationRoot,
+      totalLength,
+      "Not enough free disk space to extract this archive safely.");
 
-    return new ExtractionPlan(expansionLimit);
+    return new ExtractionPlan(expansionLimit, totalLength);
   }
 
   private static long ExpansionLimit(long archiveLength)
@@ -149,17 +150,6 @@ internal static class ZipExtractor
     }
 
     return archiveLength * MaxExpansionRatio + ExpansionAllowanceBytes;
-  }
-
-  private static DriveInfo GetDrive(string path)
-  {
-    string root = Path.GetPathRoot(Path.GetFullPath(path));
-    if (string.IsNullOrWhiteSpace(root))
-    {
-      throw new IOException("Could not determine the destination drive.");
-    }
-
-    return new DriveInfo(root);
   }
 
   private static string SanitizeEntryName(string entryName)
@@ -189,11 +179,13 @@ internal static class ZipExtractor
 
   private sealed class ExtractionPlan
   {
-    public ExtractionPlan(long expansionLimit)
+    public ExtractionPlan(long expansionLimit, long totalLength)
     {
       ExpansionLimit = expansionLimit;
+      TotalLength = totalLength;
     }
 
     public long ExpansionLimit { get; }
+    public long TotalLength { get; }
   }
 }

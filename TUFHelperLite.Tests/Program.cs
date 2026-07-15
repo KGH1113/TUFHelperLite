@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using TUFHelperLite.Infrastructure.Downloads;
 using TUFHelperLite.Integration;
 
 internal static class Program
@@ -42,9 +43,11 @@ internal static class Program
       Check("file directly under root", null, LevelContextResolver.ResolveTufLevelId(
         CreateLevel(root, "", "chart.adofai")));
 
+      RunDiskSpacePolicyTests();
+
       if (Failures.Count == 0)
       {
-        Console.WriteLine("All LevelContextResolver tests passed.");
+        Console.WriteLine("All tests passed.");
         return 0;
       }
 
@@ -69,8 +72,44 @@ internal static class Program
     return Path.GetFullPath(path);
   }
 
+  private static void RunDiskSpacePolicyTests()
+  {
+    const long gibibyte = 1024L * 1024 * 1024;
+    const long mebibyte = 1024L * 1024;
+
+    CheckLong("minimum disk reserve", gibibyte, DiskSpacePolicy.CalculateReserveBytes(10 * gibibyte));
+    CheckLong("percentage disk reserve", 2 * gibibyte, DiskSpacePolicy.CalculateReserveBytes(40 * gibibyte));
+    CheckLong("maximum disk reserve", 5 * gibibyte, DiskSpacePolicy.CalculateReserveBytes(200 * gibibyte));
+
+    long requiredBytes = 512 * mebibyte;
+    long exactAvailableBytes = gibibyte + requiredBytes;
+    CheckTrue("exact disk-space boundary", DiskSpacePolicy.HasSufficientSpace(
+      exactAvailableBytes, 10 * gibibyte, requiredBytes));
+    CheckFalse("one byte below disk-space boundary", DiskSpacePolicy.HasSufficientSpace(
+      exactAvailableBytes - 1, 10 * gibibyte, requiredBytes));
+
+    CheckLong("unknown download length fallback", 0, DiskSpacePolicy.CalculateRemainingBytes(-1, 64 * mebibyte));
+    CheckLong("known download remaining bytes", 60, DiskSpacePolicy.CalculateRemainingBytes(100, 40));
+    CheckLong("completed download remaining bytes", 0, DiskSpacePolicy.CalculateRemainingBytes(100, 100));
+  }
+
   private static void Check(string name, int? expected, int? actual)
   {
     if (expected != actual) Failures.Add($"{name}: expected {expected?.ToString() ?? "null"}, got {actual?.ToString() ?? "null"}");
+  }
+
+  private static void CheckLong(string name, long expected, long actual)
+  {
+    if (expected != actual) Failures.Add($"{name}: expected {expected}, got {actual}");
+  }
+
+  private static void CheckTrue(string name, bool actual)
+  {
+    if (!actual) Failures.Add($"{name}: expected true, got false");
+  }
+
+  private static void CheckFalse(string name, bool actual)
+  {
+    if (actual) Failures.Add($"{name}: expected false, got true");
   }
 }

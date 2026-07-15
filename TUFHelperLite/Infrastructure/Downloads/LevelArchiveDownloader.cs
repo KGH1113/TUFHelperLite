@@ -161,8 +161,10 @@ public static class LevelArchiveDownloader
     {
       using CancellationTokenRegistration registration = cancellationToken.Register(client.CancelAsync);
       using Stream input = client.OpenReadTaskAsync(directUrl).GetAwaiter().GetResult();
-      using FileStream output = new(zipPath, FileMode.Create, FileAccess.Write, FileShare.None);
       long totalBytes = ReadContentLength(client);
+      long initialRequiredBytes = DiskSpacePolicy.CalculateRemainingBytes(totalBytes, bytesReceived);
+      ZipExtractor.EnsureAvailableSpace(zipPath, initialRequiredBytes);
+      using FileStream output = new(zipPath, FileMode.Create, FileAccess.Write, FileShare.None);
       int bytesRead;
 
       while ((bytesRead = input.Read(buffer, 0, buffer.Length)) > 0)
@@ -173,7 +175,8 @@ public static class LevelArchiveDownloader
 
         if (bytesReceived >= nextDiskCheck)
         {
-          ZipExtractor.EnsureDiskReserve(zipPath);
+          long remainingBytes = DiskSpacePolicy.CalculateRemainingBytes(totalBytes, bytesReceived);
+          ZipExtractor.EnsureAvailableSpace(zipPath, remainingBytes);
           nextDiskCheck = checked(bytesReceived + diskCheckInterval);
         }
 
@@ -184,6 +187,7 @@ public static class LevelArchiveDownloader
         }
       }
 
+      ZipExtractor.EnsureDiskReserve(zipPath);
       ReportDownloadProgress(onProgress, bytesReceived, totalBytes);
     }
     catch (WebException) when (cancellationToken.IsCancellationRequested)
