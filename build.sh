@@ -62,6 +62,12 @@ DOTNET_ROOT="$DOTNET_ROOT" DOTNET_ROOT_ARM64="$DOTNET_ROOT_ARM64" \
   -p:UnityModManagerDll="$UNITY_MOD_MANAGER_DLL" \
   -p:HarmonyDll="$HARMONY_DLL"
 
+DOTNET_ROOT="$DOTNET_ROOT" DOTNET_ROOT_ARM64="$DOTNET_ROOT_ARM64" \
+"$DOTNET_EXE" build "$PROJECT/TUFHelperLite.Bootstrap/TUFHelperLite.Bootstrap.csproj" \
+  -p:OutputPath="$OUT/" \
+  -p:AdofaiManaged="$ADOFAI_MANAGED" \
+  -p:UnityModManagerDll="$UNITY_MOD_MANAGER_DLL"
+
 mkdir -p "$DEST"
 rm -rf "$DEST/assembly_cache"
 cp "$PROJECT/TUFHelperLite/Info.json" "$DEST/"
@@ -70,6 +76,7 @@ cp "$PROJECT/THIRD_PARTY_NOTICES.md" "$DEST/"
 rm -f "$DEST/JAModInfo.json" "$DEST/JAMod.Bootstrap.dll"
 rm -f "$DEST"/JAMod.Bootstrap.dll.*.cache
 cp "$OUT/TUFHelperLite.dll" "$DEST/"
+cp "$OUT/TUFHelperLite.Core.dll" "$DEST/"
 cp "$ADOFAIIPC_BOOTSTRAP_DLL" "$DEST/"
 
 if [ -d "$PROJECT/TUFHelperLite/Assets" ]; then
@@ -77,8 +84,8 @@ if [ -d "$PROJECT/TUFHelperLite/Assets" ]; then
   cp -R "$PROJECT/TUFHelperLite/Assets" "$DEST/"
 fi
 
-if [ -f "$OUT/TUFHelperLite.pdb" ]; then
-  cp "$OUT/TUFHelperLite.pdb" "$DEST/"
+if [ -f "$OUT/TUFHelperLite.Core.pdb" ]; then
+  cp "$OUT/TUFHelperLite.Core.pdb" "$DEST/"
 fi
 
 echo "Installed to $DEST"

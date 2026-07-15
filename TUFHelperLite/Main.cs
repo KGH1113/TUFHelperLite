@@ -1,5 +1,7 @@
 using System;
+using System.Threading;
 using TUFHelperLite.Features;
+using TUFHelperLite.Infrastructure.Updates;
 using TUFHelperLite.Presentation.Unity;
 using UnityModManagerNet;
 
@@ -13,21 +15,27 @@ public sealed class Main
   public string Version => ModEntry.Info.Version;
 
   private IpcFeature _ipcFeature;
+  private readonly SynchronizationContext _mainThread;
+  private readonly string _displayName;
+  private AutoUpdateService _autoUpdateService;
   private bool _enabled;
 
-  private Main(UnityModManager.ModEntry modEntry)
+  private Main(UnityModManager.ModEntry modEntry, SynchronizationContext mainThread)
   {
     ModEntry = modEntry;
+    _mainThread = mainThread;
+    _displayName = modEntry.Info.DisplayName;
   }
 
   public static bool Load(UnityModManager.ModEntry modEntry)
   {
     try
     {
-      Instance = new Main(modEntry);
+      Instance = new Main(modEntry, SynchronizationContext.Current);
       modEntry.OnToggle = OnToggle;
       modEntry.OnUnload = OnUnload;
       Instance.Enable();
+      Instance.StartAutomaticUpdates();
       return true;
     }
     catch (Exception e)
@@ -71,7 +79,7 @@ public sealed class Main
   {
     try
     {
-      Instance?.Disable();
+      Instance?.Shutdown();
       return true;
     }
     catch (Exception e)
@@ -109,5 +117,39 @@ public sealed class Main
     _ipcFeature = null;
     DownloadStatusOverlay.Uninstall();
     _enabled = false;
+  }
+
+  private void StartAutomaticUpdates()
+  {
+    if (_autoUpdateService != null) return;
+    _autoUpdateService = new AutoUpdateService(
+      Version,
+      ModEntry.Path,
+      Log,
+      Warning,
+      version => RunOnMainThread(() =>
+      {
+        ModEntry.Info.DisplayName = $"{_displayName} <color=grey>[Update {version} ready - restart]</color>";
+        Log($"TUFHelperLite {version} update is ready and will be applied on the next launch.");
+      }));
+    _autoUpdateService.Start();
+  }
+
+  private void Shutdown()
+  {
+    _autoUpdateService?.Dispose();
+    _autoUpdateService = null;
+    Disable();
+  }
+
+  private void RunOnMainThread(Action action)
+  {
+    if (_mainThread == null || SynchronizationContext.Current == _mainThread)
+    {
+      action();
+      return;
+    }
+
+    _mainThread.Post(_ => action(), null);
   }
 }

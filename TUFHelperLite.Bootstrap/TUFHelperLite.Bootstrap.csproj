@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>TUFHelperLite</AssemblyName>
+    <RootNamespace>TUFHelperLite.Bootstrap</RootNamespace>
+    <AdofaiDir Condition="'$(AdofaiDir)' == '' and '$(ADOFAI_DIR)' != ''">$(ADOFAI_DIR)</AdofaiDir>
+    <AdofaiDir Condition="'$(AdofaiDir)' == ''">$(HOME)/Library/Application Support/Steam/steamapps/common/A Dance of Fire and Ice</AdofaiDir>
+    <AdofaiManaged Condition="'$(AdofaiManaged)' == '' and '$(ADOFAI_MANAGED)' != ''">$(ADOFAI_MANAGED)</AdofaiManaged>
+    <AdofaiManaged Condition="'$(AdofaiManaged)' == ''">$(AdofaiDir)/ADanceOfFireAndIce.app/Contents/Resources/Data/Managed</AdofaiManaged>
+    <UnityModManagerDll Condition="'$(UnityModManagerDll)' == ''">$(AdofaiManaged)/UnityModManager/UnityModManager.dll</UnityModManagerDll>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="UnityModManager">
+      <HintPath>$(UnityModManagerDll)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(AdofaiManaged)/Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

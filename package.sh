@@ -94,6 +94,12 @@ DOTNET_ROOT="$DOTNET_ROOT" DOTNET_ROOT_ARM64="$DOTNET_ROOT_ARM64" \
   -p:UnityModManagerDll="$UNITY_MOD_MANAGER_DLL" \
   -p:HarmonyDll="$HARMONY_DLL"
 
+DOTNET_ROOT="$DOTNET_ROOT" DOTNET_ROOT_ARM64="$DOTNET_ROOT_ARM64" \
+"$DOTNET_EXE" build "$PROJECT/TUFHelperLite.Bootstrap/TUFHelperLite.Bootstrap.csproj" \
+  -p:OutputPath="$OUT/" \
+  -p:AdofaiManaged="$ADOFAI_MANAGED" \
+  -p:UnityModManagerDll="$UNITY_MOD_MANAGER_DLL"
+
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 
@@ -101,14 +107,15 @@ cp "$PROJECT/TUFHelperLite/Info.json" "$STAGE/"
 cp "$PROJECT/TUFHelperLite/AdofaiIpcBootstrap.json" "$STAGE/"
 cp "$PROJECT/THIRD_PARTY_NOTICES.md" "$STAGE/"
 cp "$OUT/TUFHelperLite.dll" "$STAGE/"
+cp "$OUT/TUFHelperLite.Core.dll" "$STAGE/"
 cp "$ADOFAIIPC_BOOTSTRAP_DLL" "$STAGE/"
 
 if [ -d "$PROJECT/TUFHelperLite/Assets" ]; then
   cp -R "$PROJECT/TUFHelperLite/Assets" "$STAGE/"
 fi
 
-if [ -f "$OUT/TUFHelperLite.pdb" ]; then
-  cp "$OUT/TUFHelperLite.pdb" "$STAGE/"
+if [ -f "$OUT/TUFHelperLite.Core.pdb" ]; then
+  cp "$OUT/TUFHelperLite.Core.pdb" "$STAGE/"
 fi
 
 rm -f "$ZIP_PATH"
@@ -120,4 +127,8 @@ mkdir -p "$(dirname "$ZIP_PATH")"
     -x 'TUFHelperLite/*.log'
 )
 
+archive_sha256="$(shasum -a 256 "$ZIP_PATH" | awk '{print $1}')"
+printf '%s  %s\n' "$archive_sha256" "$(basename "$ZIP_PATH")" > "$ZIP_PATH.sha256"
+
 echo "Packaged to $ZIP_PATH"
+echo "Checksum written to $ZIP_PATH.sha256"

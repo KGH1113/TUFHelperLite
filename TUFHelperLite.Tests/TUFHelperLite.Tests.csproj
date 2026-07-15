@@ -10,8 +10,13 @@
 
   <ItemGroup>
     <ProjectReference Include="../TUFHelperLite/TUFHelperLite.csproj" />
+    <ProjectReference Include="../TUFHelperLite.Bootstrap/TUFHelperLite.Bootstrap.csproj" />
     <Reference Include="UnityModManager">
       <HintPath>$(UnityModManagerDll)</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(AdofaiManaged)/Newtonsoft.Json.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>

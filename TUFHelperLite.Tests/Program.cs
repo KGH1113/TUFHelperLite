@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
+using TUFHelperLite.Bootstrap;
 using TUFHelperLite.Infrastructure.Downloads;
+using TUFHelperLite.Infrastructure.Updates;
 using TUFHelperLite.Integration;
 
 internal static class Program
@@ -11,7 +14,9 @@ internal static class Program
   private static int Main()
   {
     string root = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Downloads");
+    string updateRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "UpdateTests");
     if (Directory.Exists(root)) Directory.Delete(root, true);
+    if (Directory.Exists(updateRoot)) Directory.Delete(updateRoot, true);
 
     try
     {
@@ -44,6 +49,7 @@ internal static class Program
         CreateLevel(root, "", "chart.adofai")));
 
       RunDiskSpacePolicyTests();
+      RunUpdateTests(updateRoot);
 
       if (Failures.Count == 0)
       {
@@ -57,6 +63,7 @@ internal static class Program
     finally
     {
       if (Directory.Exists(root)) Directory.Delete(root, true);
+      if (Directory.Exists(updateRoot)) Directory.Delete(updateRoot, true);
       string outside = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "outside");
       if (Directory.Exists(outside)) Directory.Delete(outside, true);
       string sibling = root + "-other";
@@ -93,6 +100,148 @@ internal static class Program
     CheckLong("completed download remaining bytes", 0, DiskSpacePolicy.CalculateRemainingBytes(100, 100));
   }
 
+  private static void RunUpdateTests(string root)
+  {
+    Directory.CreateDirectory(root);
+    CheckTrue("version with v prefix", UpdateVersion.IsNewer("v0.2.0", "0.1.0"));
+    CheckFalse("same update version", UpdateVersion.IsNewer("0.1.0", "0.1.0"));
+    CheckFalse("older update version", UpdateVersion.IsNewer("0.0.9", "0.1.0"));
+    CheckFalse("invalid update version", UpdateVersion.IsNewer("preview", "0.1.0"));
+
+    string releaseJson = "{" +
+      "\"tag_name\":\"v0.2.0\",\"draft\":false,\"prerelease\":false,\"assets\":[" +
+      "{\"name\":\"TUFHelperLite.zip\",\"browser_download_url\":\"https://github.com/KGH1113/TUFHelperLite/releases/download/v0.2.0/TUFHelperLite.zip\",\"size\":1024}," +
+      "{\"name\":\"TUFHelperLite.zip.sha256\",\"browser_download_url\":\"https://github.com/KGH1113/TUFHelperLite/releases/download/v0.2.0/TUFHelperLite.zip.sha256\",\"size\":80}]}";
+    AutoUpdateService.UpdateReleaseSelection selection = AutoUpdateService.SelectRelease(releaseJson, "0.1.0");
+    CheckString("release metadata version", "0.2.0", selection?.Version);
+    CheckTrue("current release skipped", AutoUpdateService.SelectRelease(releaseJson, "0.2.0") == null);
+    CheckTrue(
+      "prerelease skipped",
+      AutoUpdateService.SelectRelease(releaseJson.Replace("\"prerelease\":false", "\"prerelease\":true"), "0.1.0") == null);
+    ExpectThrows<InvalidDataException>(
+      "missing checksum release asset",
+      () => AutoUpdateService.SelectRelease(
+        releaseJson.Replace("TUFHelperLite.zip.sha256", "other.sha256"),
+        "0.1.0"));
+
+    string checksum = new string('a', 64);
+    CheckString("checksum parsing", checksum, UpdatePackageStager.ParseChecksum(checksum + "  TUFHelperLite.zip"));
+    ExpectThrows<InvalidDataException>(
+      "invalid checksum",
+      () => UpdatePackageStager.ParseChecksum("not-a-checksum"));
+
+    string modRoot = Path.Combine(root, "Mod");
+    Directory.CreateDirectory(Path.Combine(modRoot, "Data"));
+    File.WriteAllText(Path.Combine(modRoot, "TUFHelperLite.Core.dll"), "old-core");
+    File.WriteAllText(Path.Combine(modRoot, "Info.json"), "{\"Version\":\"0.1.0\"}");
+    File.WriteAllText(Path.Combine(modRoot, "AdofaiIpcBootstrap.json"), "{}");
+    File.WriteAllText(Path.Combine(modRoot, "Data", "user-data.json"), "preserve-me");
+
+    string firstArchive = CreateUpdateArchive(root, "first.zip", "0.2.0", "new-core");
+    UpdatePackageStager.Stage(
+      firstArchive,
+      modRoot,
+      "v0.2.0",
+      UpdatePackageStager.ComputeSha256(firstArchive));
+    CheckTrue("pending update manifest", File.Exists(Path.Combine(modRoot, "Data", "updates", "pending", "pending.json")));
+
+    PendingUpdateInstaller installer = new(modRoot);
+    AppliedUpdate firstUpdate = installer.ApplyPending();
+    CheckTrue("pending update applied", firstUpdate != null);
+    CheckString("updated core file", "new-core", File.ReadAllText(Path.Combine(modRoot, "TUFHelperLite.Core.dll")));
+    CheckString("user data preserved", "preserve-me", File.ReadAllText(Path.Combine(modRoot, "Data", "user-data.json")));
+    installer.Commit(firstUpdate);
+    CheckFalse("pending update removed after commit", Directory.Exists(Path.Combine(modRoot, "Data", "updates", "pending")));
+
+    string rollbackArchive = CreateUpdateArchive(root, "rollback.zip", "0.3.0", "rollback-core");
+    UpdatePackageStager.Stage(
+      rollbackArchive,
+      modRoot,
+      "0.3.0",
+      UpdatePackageStager.ComputeSha256(rollbackArchive));
+    AppliedUpdate rollbackUpdate = installer.ApplyPending();
+    installer.Rollback(rollbackUpdate);
+    CheckString("core restored after rollback", "new-core", File.ReadAllText(Path.Combine(modRoot, "TUFHelperLite.Core.dll")));
+    CheckTrue(
+      "failed update quarantined",
+      Directory.GetDirectories(Path.Combine(modRoot, "Data", "updates"), "failed-*").Length > 0);
+
+    string updatesRoot = Path.Combine(modRoot, "Data", "updates");
+    string untouchedBackup = Path.Combine(updatesRoot, "backup-not-started");
+    File.WriteAllText(
+      Path.Combine(updatesRoot, "applying.json"),
+      $"{{\"Version\":\"0.4.0\",\"BackupRoot\":\"{EscapeJson(untouchedBackup)}\",\"Files\":[{{\"Path\":\"TUFHelperLite.Core.dll\",\"HadOriginal\":true}}]}}");
+    installer.RecoverInterruptedApply();
+    CheckString(
+      "journal before backup preserves original",
+      "new-core",
+      File.ReadAllText(Path.Combine(modRoot, "TUFHelperLite.Core.dll")));
+
+    string unsafeArchive = CreateInvalidUpdateArchive(root, "unsafe.zip", "TUFHelperLite/../escape.txt", false);
+    ExpectThrows<InvalidDataException>(
+      "zip path traversal",
+      () => UpdatePackageStager.Stage(
+        unsafeArchive,
+        modRoot,
+        "0.4.0",
+        UpdatePackageStager.ComputeSha256(unsafeArchive)));
+
+    string symlinkArchive = CreateInvalidUpdateArchive(root, "symlink.zip", "TUFHelperLite/Assets/link", true);
+    ExpectThrows<InvalidDataException>(
+      "zip symbolic link",
+      () => UpdatePackageStager.Stage(
+        symlinkArchive,
+        modRoot,
+        "0.4.0",
+        UpdatePackageStager.ComputeSha256(symlinkArchive)));
+  }
+
+  private static string CreateUpdateArchive(
+    string root,
+    string fileName,
+    string version,
+    string coreContent)
+  {
+    string path = Path.Combine(root, fileName);
+    using FileStream stream = new(path, FileMode.Create, FileAccess.Write, FileShare.None);
+    using ZipArchive archive = new(stream, ZipArchiveMode.Create);
+    AddZipText(archive, "TUFHelperLite/TUFHelperLite.dll", "stable-bootstrap");
+    AddZipText(archive, "TUFHelperLite/AdofaiIpc.Bootstrap.dll", "dependency-bootstrap");
+    AddZipText(archive, "TUFHelperLite/TUFHelperLite.Core.dll", coreContent);
+    AddZipText(archive, "TUFHelperLite/Info.json", $"{{\"Version\":\"{version}\"}}");
+    AddZipText(archive, "TUFHelperLite/AdofaiIpcBootstrap.json", "{}");
+    AddZipText(archive, "TUFHelperLite/Assets/update.txt", version);
+    return path;
+  }
+
+  private static string CreateInvalidUpdateArchive(
+    string root,
+    string fileName,
+    string entryName,
+    bool symbolicLink)
+  {
+    string path = Path.Combine(root, fileName);
+    using FileStream stream = new(path, FileMode.Create, FileAccess.Write, FileShare.None);
+    using ZipArchive archive = new(stream, ZipArchiveMode.Create);
+    ZipArchiveEntry entry = archive.CreateEntry(entryName);
+    if (symbolicLink) entry.ExternalAttributes = 0xA000 << 16;
+    using StreamWriter writer = new(entry.Open());
+    writer.Write("invalid");
+    return path;
+  }
+
+  private static void AddZipText(ZipArchive archive, string path, string value)
+  {
+    ZipArchiveEntry entry = archive.CreateEntry(path);
+    using StreamWriter writer = new(entry.Open());
+    writer.Write(value);
+  }
+
+  private static string EscapeJson(string value)
+  {
+    return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+  }
+
   private static void Check(string name, int? expected, int? actual)
   {
     if (expected != actual) Failures.Add($"{name}: expected {expected?.ToString() ?? "null"}, got {actual?.ToString() ?? "null"}");
@@ -101,6 +250,28 @@ internal static class Program
   private static void CheckLong(string name, long expected, long actual)
   {
     if (expected != actual) Failures.Add($"{name}: expected {expected}, got {actual}");
+  }
+
+  private static void CheckString(string name, string expected, string actual)
+  {
+    if (!string.Equals(expected, actual, StringComparison.Ordinal))
+      Failures.Add($"{name}: expected {expected}, got {actual}");
+  }
+
+  private static void ExpectThrows<TException>(string name, Action action) where TException : Exception
+  {
+    try
+    {
+      action();
+      Failures.Add($"{name}: expected {typeof(TException).Name}");
+    }
+    catch (TException)
+    {
+    }
+    catch (Exception exception)
+    {
+      Failures.Add($"{name}: expected {typeof(TException).Name}, got {exception.GetType().Name}");
+    }
   }
 
   private static void CheckTrue(string name, bool actual)

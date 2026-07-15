@@ -77,6 +77,15 @@ Create a package zip:
 ./package.sh
 ```
 
+The package command creates both `build/TUFHelperLite.zip` and
+`build/TUFHelperLite.zip.sha256`. Upload both files, without renaming them, to a
+stable GitHub release tagged `vX.Y.Z`; `X.Y.Z` must match `Info.json`.
+
+TUFHelperLite checks the latest stable release at startup, verifies and stages a
+newer package, then applies it before loading the core assembly on the next game
+launch. The first release that introduces `TUFHelperLite.Core.dll` must be
+installed manually once so the fixed bootstrap is present.
+
 ## Tech Stack
 
 - **C# / .NET SDK**: mod implementation and build tooling.
