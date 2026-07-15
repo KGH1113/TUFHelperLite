@@ -2,11 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Net;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
 using TUFHelperLite.Bootstrap;
 using TUFHelperLite.Domain.Errors;
 using TUFHelperLite.Domain.Jobs;
 using TUFHelperLite.Infrastructure.Downloads;
-using TUFHelperLite.Infrastructure.Updates;
 using TUFHelperLite.Integration;
 
 internal static class Program
@@ -121,15 +124,15 @@ internal static class Program
       "\"tag_name\":\"v0.2.0\",\"draft\":false,\"prerelease\":false,\"assets\":[" +
       "{\"name\":\"TUFHelperLite.zip\",\"browser_download_url\":\"https://github.com/KGH1113/TUFHelperLite/releases/download/v0.2.0/TUFHelperLite.zip\",\"size\":1024}," +
       "{\"name\":\"TUFHelperLite.zip.sha256\",\"browser_download_url\":\"https://github.com/KGH1113/TUFHelperLite/releases/download/v0.2.0/TUFHelperLite.zip.sha256\",\"size\":80}]}";
-    AutoUpdateService.UpdateReleaseSelection selection = AutoUpdateService.SelectRelease(releaseJson, "0.1.0");
+    BootstrapUpdateService.UpdateReleaseSelection selection = BootstrapUpdateService.SelectRelease(releaseJson, "0.1.0");
     CheckString("release metadata version", "0.2.0", selection?.Version);
-    CheckTrue("current release skipped", AutoUpdateService.SelectRelease(releaseJson, "0.2.0") == null);
+    CheckTrue("current release skipped", BootstrapUpdateService.SelectRelease(releaseJson, "0.2.0") == null);
     CheckTrue(
       "prerelease skipped",
-      AutoUpdateService.SelectRelease(releaseJson.Replace("\"prerelease\":false", "\"prerelease\":true"), "0.1.0") == null);
+      BootstrapUpdateService.SelectRelease(releaseJson.Replace("\"prerelease\":false", "\"prerelease\":true"), "0.1.0") == null);
     ExpectThrows<InvalidDataException>(
       "missing checksum release asset",
-      () => AutoUpdateService.SelectRelease(
+      () => BootstrapUpdateService.SelectRelease(
         releaseJson.Replace("TUFHelperLite.zip.sha256", "other.sha256"),
         "0.1.0"));
 
@@ -155,7 +158,7 @@ internal static class Program
     CheckTrue("pending update manifest", File.Exists(Path.Combine(modRoot, "Data", "updates", "pending", "pending.json")));
 
     PendingUpdateInstaller installer = new(modRoot);
-    AppliedUpdate firstUpdate = installer.ApplyPending();
+    AppliedUpdate firstUpdate = installer.ApplyPending("0.1.0");
     CheckTrue("pending update applied", firstUpdate != null);
     CheckString("updated core file", "new-core", File.ReadAllText(Path.Combine(modRoot, "TUFHelperLite.Core.dll")));
     CheckString("user data preserved", "preserve-me", File.ReadAllText(Path.Combine(modRoot, "Data", "user-data.json")));
@@ -168,7 +171,7 @@ internal static class Program
       modRoot,
       "0.3.0",
       UpdatePackageStager.ComputeSha256(rollbackArchive));
-    AppliedUpdate rollbackUpdate = installer.ApplyPending();
+    AppliedUpdate rollbackUpdate = installer.ApplyPending("0.2.0");
     installer.Rollback(rollbackUpdate);
     CheckString("core restored after rollback", "new-core", File.ReadAllText(Path.Combine(modRoot, "TUFHelperLite.Core.dll")));
     CheckTrue(
@@ -203,6 +206,153 @@ internal static class Program
         modRoot,
         "0.4.0",
         UpdatePackageStager.ComputeSha256(symlinkArchive)));
+
+    string staleArchive = CreateUpdateArchive(root, "stale.zip", "0.1.0", "stale-core");
+    UpdatePackageStager.Stage(
+      staleArchive,
+      modRoot,
+      "0.1.0",
+      UpdatePackageStager.ComputeSha256(staleArchive));
+    CheckTrue("stale pending skipped", installer.ApplyPending("0.2.0") == null);
+    CheckString("stale pending preserves core", "new-core", File.ReadAllText(Path.Combine(modRoot, "TUFHelperLite.Core.dll")));
+
+    RunBootstrapUpdateServiceTests(root);
+  }
+
+  private static void RunBootstrapUpdateServiceTests(string root)
+  {
+    CheckLong("bootstrap network timeout", 20, (long)Loader.UpdateNetworkTimeout.TotalSeconds);
+
+    string modRoot = Path.Combine(root, "NetworkMod");
+    Directory.CreateDirectory(Path.Combine(modRoot, "Data"));
+    File.WriteAllText(Path.Combine(modRoot, "TUFHelperLite.Core.dll"), "old-core");
+    File.WriteAllText(Path.Combine(modRoot, "Info.json"), "{\"Version\":\"0.1.0\"}");
+    File.WriteAllText(Path.Combine(modRoot, "AdofaiIpcBootstrap.json"), "{}");
+    PendingUpdateInstaller installer = new(modRoot);
+
+    string archivePath = CreateUpdateArchive(root, "network.zip", "0.5.0", "network-core");
+    byte[] archiveBytes = File.ReadAllBytes(archivePath);
+    string archiveSha256 = UpdatePackageStager.ComputeSha256(archivePath);
+    string releaseJson = CreateReleaseJson("0.5.0", archiveBytes.Length);
+    int packageRequests = 0;
+
+    using (HttpClient client = new(new FakeHttpMessageHandler((request, _) =>
+    {
+      if (request.RequestUri.Host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase))
+        return Task.FromResult(Response(releaseJson));
+      if (request.RequestUri.AbsolutePath.EndsWith(".sha256", StringComparison.Ordinal))
+        return Task.FromResult(Response(archiveSha256));
+      packageRequests++;
+      return Task.FromResult(Response(archiveBytes));
+    })))
+    using (BootstrapUpdateService updater = new(modRoot, _ => { }, client))
+    {
+      string staged = updater.CheckAndStageAsync("0.1.0", installer, CancellationToken.None).GetAwaiter().GetResult();
+      CheckString("bootstrap update staged", "0.5.0", staged);
+      CheckLong("bootstrap package downloaded once", 1, packageRequests);
+    }
+
+    packageRequests = 0;
+    using (HttpClient client = new(new FakeHttpMessageHandler((request, _) =>
+    {
+      if (request.RequestUri.Host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase))
+        return Task.FromResult(Response(releaseJson));
+      packageRequests++;
+      throw new InvalidOperationException("A valid pending update must be reused.");
+    })))
+    using (BootstrapUpdateService updater = new(modRoot, _ => { }, client))
+    {
+      string staged = updater.CheckAndStageAsync("0.1.0", installer, CancellationToken.None).GetAwaiter().GetResult();
+      CheckString("matching pending reused", "0.5.0", staged);
+      CheckLong("matching pending skips package", 0, packageRequests);
+    }
+
+    File.WriteAllText(
+      Path.Combine(modRoot, "Data", "updates", "pending", "payload", "TUFHelperLite.Core.dll"),
+      "corrupt-core");
+    packageRequests = 0;
+    using (HttpClient client = new(new FakeHttpMessageHandler((request, _) =>
+    {
+      if (request.RequestUri.Host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase))
+        return Task.FromResult(Response(releaseJson));
+      if (request.RequestUri.AbsolutePath.EndsWith(".sha256", StringComparison.Ordinal))
+        return Task.FromResult(Response(archiveSha256));
+      packageRequests++;
+      return Task.FromResult(Response(archiveBytes));
+    })))
+    using (BootstrapUpdateService updater = new(modRoot, _ => { }, client))
+    {
+      string staged = updater.CheckAndStageAsync("0.1.0", installer, CancellationToken.None).GetAwaiter().GetResult();
+      CheckString("corrupt pending replaced", "0.5.0", staged);
+      CheckLong("corrupt pending redownloads package", 1, packageRequests);
+    }
+
+    AppliedUpdate applied = installer.ApplyPending("0.1.0");
+    CheckTrue("bootstrap staged update applied", applied != null);
+    CheckString("bootstrap updated core before load", "network-core", File.ReadAllText(Path.Combine(modRoot, "TUFHelperLite.Core.dll")));
+    installer.Commit(applied);
+
+    using (HttpClient client = new(new FakeHttpMessageHandler((_, _) => Task.FromResult(Response(releaseJson)))))
+    using (BootstrapUpdateService updater = new(modRoot, _ => { }, client))
+    {
+      CheckTrue(
+        "current bootstrap release skips download",
+        updater.CheckAndStageAsync("0.5.0", installer, CancellationToken.None).GetAwaiter().GetResult() == null);
+    }
+
+    using (HttpClient client = new(new FakeHttpMessageHandler(async (_, cancellationToken) =>
+    {
+      await Task.Delay(Timeout.Infinite, cancellationToken);
+      return Response(string.Empty);
+    })))
+    using (BootstrapUpdateService updater = new(modRoot, _ => { }, client))
+    using (CancellationTokenSource timeout = new(TimeSpan.FromMilliseconds(20)))
+    {
+      ExpectThrows<OperationCanceledException>(
+        "bootstrap network cancellation",
+        () => updater.CheckAndStageAsync("0.5.0", installer, timeout.Token).GetAwaiter().GetResult());
+    }
+
+    string mismatchArchive = CreateUpdateArchive(root, "mismatch.zip", "0.6.0", "bad-core");
+    byte[] mismatchBytes = File.ReadAllBytes(mismatchArchive);
+    string mismatchRelease = CreateReleaseJson("0.6.0", mismatchBytes.Length);
+    using (HttpClient client = new(new FakeHttpMessageHandler((request, _) =>
+    {
+      if (request.RequestUri.Host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase))
+        return Task.FromResult(Response(mismatchRelease));
+      if (request.RequestUri.AbsolutePath.EndsWith(".sha256", StringComparison.Ordinal))
+        return Task.FromResult(Response(new string('0', 64)));
+      return Task.FromResult(Response(mismatchBytes));
+    })))
+    using (BootstrapUpdateService updater = new(modRoot, _ => { }, client))
+    {
+      ExpectThrows<InvalidDataException>(
+        "bootstrap checksum mismatch",
+        () => updater.CheckAndStageAsync("0.5.0", installer, CancellationToken.None).GetAwaiter().GetResult());
+    }
+
+    CheckFalse(
+      "bootstrap temporary archive cleaned",
+      Directory.GetFiles(Path.Combine(modRoot, "Data", "updates"), "download-*.zip").Length > 0);
+  }
+
+  private static string CreateReleaseJson(string version, long packageSize)
+  {
+    string root = $"https://github.com/KGH1113/TUFHelperLite/releases/download/v{version}/";
+    return "{" +
+      $"\"tag_name\":\"v{version}\",\"draft\":false,\"prerelease\":false,\"assets\":[" +
+      $"{{\"name\":\"TUFHelperLite.zip\",\"browser_download_url\":\"{root}TUFHelperLite.zip\",\"size\":{packageSize}}}," +
+      $"{{\"name\":\"TUFHelperLite.zip.sha256\",\"browser_download_url\":\"{root}TUFHelperLite.zip.sha256\",\"size\":64}}]}}";
+  }
+
+  private static HttpResponseMessage Response(string value)
+  {
+    return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(value) };
+  }
+
+  private static HttpResponseMessage Response(byte[] value)
+  {
+    return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(value) };
   }
 
   private static string CreateUpdateArchive(
@@ -291,5 +441,22 @@ internal static class Program
   private static void CheckFalse(string name, bool actual)
   {
     if (actual) Failures.Add($"{name}: expected false, got true");
+  }
+
+  private sealed class FakeHttpMessageHandler : HttpMessageHandler
+  {
+    private readonly Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> _send;
+
+    public FakeHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send)
+    {
+      _send = send;
+    }
+
+    protected override Task<HttpResponseMessage> SendAsync(
+      HttpRequestMessage request,
+      CancellationToken cancellationToken)
+    {
+      return _send(request, cancellationToken);
+    }
   }
 }

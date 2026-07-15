@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Reflection;
+using System.Threading;
 using UnityModManagerNet;
 
 namespace TUFHelperLite.Bootstrap;
@@ -10,6 +11,7 @@ public static class Loader
   private const string CoreAssemblyName = "TUFHelperLite.Core.dll";
   private const string CoreTypeName = "TUFHelperLite.Main";
   private const string CoreMethodName = "Load";
+  internal static readonly TimeSpan UpdateNetworkTimeout = TimeSpan.FromSeconds(20);
   private static readonly object Sync = new();
   private static bool _loaded;
 
@@ -29,7 +31,8 @@ public static class Loader
       try
       {
         installer.RecoverInterruptedApply();
-        applied = installer.ApplyPending();
+        TryStageLatestUpdate(modEntry, installer, originalVersion);
+        applied = installer.ApplyPending(originalVersion);
         if (applied != null) modEntry.Info.Version = applied.Version;
 
         bool result = LoadCore(modEntry);
@@ -54,6 +57,29 @@ public static class Loader
         modEntry.Logger.Error(exception.ToString());
         return false;
       }
+    }
+  }
+
+  private static void TryStageLatestUpdate(
+    UnityModManager.ModEntry modEntry,
+    PendingUpdateInstaller installer,
+    string currentVersion)
+  {
+    using CancellationTokenSource timeout = new(UpdateNetworkTimeout);
+    try
+    {
+      using BootstrapUpdateService updater = new(modEntry.Path, modEntry.Logger.Log);
+      updater.CheckAndStageAsync(currentVersion, installer, timeout.Token).GetAwaiter().GetResult();
+    }
+    catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+    {
+      modEntry.Logger.Warning(
+        $"TUFHelperLite automatic update timed out after {UpdateNetworkTimeout.TotalSeconds:0} seconds; loading the installed version.");
+    }
+    catch (Exception exception)
+    {
+      modEntry.Logger.Warning(
+        "TUFHelperLite automatic update failed; loading the installed version: " + exception.Message);
     }
   }
 

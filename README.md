@@ -81,9 +81,11 @@ The package command creates both `build/TUFHelperLite.zip` and
 `build/TUFHelperLite.zip.sha256`. Upload both files, without renaming them, to a
 stable GitHub release tagged `vX.Y.Z`; `X.Y.Z` must match `Info.json`.
 
-TUFHelperLite checks the latest stable release at startup, verifies and stages a
-newer package, then applies it before loading the core assembly on the next game
-launch. The first release that introduces `TUFHelperLite.Core.dll` must be
+TUFHelperLite's fixed bootstrap checks the latest stable release before loading
+the core assembly. It allows up to 20 seconds for release metadata, checksum,
+and package downloads, then verifies, stages, and applies a newer core in the
+same game launch. Network or verification failures fall back to the installed
+version. The first release that introduces `TUFHelperLite.Core.dll` must be
 installed manually once so the fixed bootstrap is present.
 
 ## Tech Stack

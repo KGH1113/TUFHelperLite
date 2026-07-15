@@ -6,99 +6,84 @@ using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
-using TUFHelperLite.Infrastructure.Downloads;
+namespace TUFHelperLite.Bootstrap;
 
-namespace TUFHelperLite.Infrastructure.Updates;
-
-internal sealed class AutoUpdateService : IDisposable
+internal sealed class BootstrapUpdateService : IDisposable
 {
   private const string LatestReleaseUrl = "https://api.github.com/repos/KGH1113/TUFHelperLite/releases/latest";
   private const string PackageAssetName = "TUFHelperLite.zip";
   private const string ChecksumAssetName = "TUFHelperLite.zip.sha256";
   private const int BufferSize = 128 * 1024;
   private const long DiskCheckInterval = 64L * 1024 * 1024;
-  private readonly string _currentVersion;
   private readonly string _modRoot;
   private readonly Action<string> _log;
-  private readonly Action<string> _warning;
-  private readonly Action<string> _ready;
-  private readonly CancellationTokenSource _cancellation = new();
-  private Task _task;
+  private readonly HttpClient _client;
+  private readonly bool _ownsClient;
 
-  public AutoUpdateService(
-    string currentVersion,
+  public BootstrapUpdateService(
     string modRoot,
     Action<string> log,
-    Action<string> warning,
-    Action<string> ready)
+    HttpClient client = null)
   {
-    _currentVersion = currentVersion;
     _modRoot = Path.GetFullPath(modRoot);
     _log = log ?? (_ => { });
-    _warning = warning ?? (_ => { });
-    _ready = ready ?? (_ => { });
-  }
-
-  public void Start()
-  {
-    if (_task != null) return;
-    _task = Task.Run(() => CheckForUpdateAsync(_cancellation.Token));
+    _client = client ?? CreateClient();
+    _ownsClient = client == null;
   }
 
   public void Dispose()
   {
-    _cancellation.Cancel();
-    _cancellation.Dispose();
+    if (_ownsClient) _client.Dispose();
   }
 
-  private async Task CheckForUpdateAsync(CancellationToken cancellationToken)
+  public async Task<string> CheckAndStageAsync(
+    string currentVersion,
+    PendingUpdateInstaller installer,
+    CancellationToken cancellationToken)
   {
+    string releaseJson = await GetLatestReleaseJsonAsync(_client, cancellationToken).ConfigureAwait(false);
+    UpdateReleaseSelection release = SelectRelease(releaseJson, currentVersion);
+    if (release == null) return null;
+
+    if (installer.HasValidPending(release.Version))
+    {
+      _log($"TUFHelperLite {release.Version} update is already staged.");
+      return release.Version;
+    }
+
+    GitHubAsset package = release.Package;
+    GitHubAsset checksum = release.Checksum;
+
+    string updatesRoot = Path.Combine(_modRoot, "Data", "updates");
+    Directory.CreateDirectory(updatesRoot);
+    string archivePath = Path.Combine(updatesRoot, "download-" + Guid.NewGuid().ToString("N") + ".zip");
+
     try
     {
-      using HttpClient client = CreateClient();
-      string releaseJson = await GetLatestReleaseJsonAsync(client, cancellationToken).ConfigureAwait(false);
-      UpdateReleaseSelection release = SelectRelease(releaseJson, _currentVersion);
-      if (release == null) return;
+      string checksumText = await GetTextAsync(
+        _client,
+        checksum.BrowserDownloadUrl,
+        cancellationToken).ConfigureAwait(false);
+      string expectedSha256 = UpdatePackageStager.ParseChecksum(checksumText);
 
-      GitHubAsset package = release.Package;
-      GitHubAsset checksum = release.Checksum;
+      await DownloadFileAsync(
+        _client,
+        package.BrowserDownloadUrl,
+        archivePath,
+        package.Size,
+        cancellationToken).ConfigureAwait(false);
 
-      string updatesRoot = Path.Combine(_modRoot, "Data", "updates");
-      Directory.CreateDirectory(updatesRoot);
-      string archivePath = Path.Combine(updatesRoot, "download-" + Guid.NewGuid().ToString("N") + ".zip");
+      string actualSha256 = UpdatePackageStager.ComputeSha256(archivePath);
+      if (!actualSha256.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+        throw new InvalidDataException("TUFHelperLite update checksum does not match.");
 
-      try
-      {
-        string checksumText = await client.GetStringAsync(checksum.BrowserDownloadUrl).ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
-        string expectedSha256 = UpdatePackageStager.ParseChecksum(checksumText);
-
-        await DownloadFileAsync(
-          client,
-          package.BrowserDownloadUrl,
-          archivePath,
-          package.Size,
-          cancellationToken).ConfigureAwait(false);
-        string actualSha256 = UpdatePackageStager.ComputeSha256(archivePath);
-        if (!actualSha256.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
-          throw new InvalidDataException("TUFHelperLite update checksum does not match.");
-
-        string version = release.Version;
-        UpdatePackageStager.Stage(archivePath, _modRoot, version, actualSha256);
-        _log($"TUFHelperLite {version} update downloaded and verified.");
-        _ready(version);
-      }
-      finally
-      {
-        if (File.Exists(archivePath)) File.Delete(archivePath);
-      }
+      UpdatePackageStager.Stage(archivePath, _modRoot, release.Version, actualSha256);
+      _log($"TUFHelperLite {release.Version} update downloaded and verified.");
+      return release.Version;
     }
-    catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+    finally
     {
-    }
-    catch (Exception exception)
-    {
-      _warning("TUFHelperLite automatic update failed: " + exception.Message);
+      if (File.Exists(archivePath)) File.Delete(archivePath);
     }
   }
 
@@ -106,7 +91,7 @@ internal sealed class AutoUpdateService : IDisposable
   {
     HttpClient client = new()
     {
-      Timeout = TimeSpan.FromSeconds(30)
+      Timeout = Timeout.InfiniteTimeSpan
     };
     client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("TUFHelperLite", "1.0"));
     client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
@@ -131,7 +116,15 @@ internal sealed class AutoUpdateService : IDisposable
     HttpClient client,
     CancellationToken cancellationToken)
   {
-    using HttpResponseMessage response = await client.GetAsync(LatestReleaseUrl, cancellationToken).ConfigureAwait(false);
+    return await GetTextAsync(client, LatestReleaseUrl, cancellationToken).ConfigureAwait(false);
+  }
+
+  private static async Task<string> GetTextAsync(
+    HttpClient client,
+    string url,
+    CancellationToken cancellationToken)
+  {
+    using HttpResponseMessage response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
     response.EnsureSuccessStatusCode();
     return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
   }
@@ -160,7 +153,7 @@ internal sealed class AutoUpdateService : IDisposable
     long expectedBytes,
     CancellationToken cancellationToken)
   {
-    DiskSpacePolicy.EnsureSufficientSpace(
+    UpdateDiskSpacePolicy.EnsureSufficientSpace(
       destination,
       expectedBytes,
       "Not enough free disk space to download the TUFHelperLite update.");
@@ -191,8 +184,8 @@ internal sealed class AutoUpdateService : IDisposable
 
       if (received >= nextDiskCheck)
       {
-        long remaining = DiskSpacePolicy.CalculateRemainingBytes(expectedBytes, received);
-        DiskSpacePolicy.EnsureSufficientSpace(
+        long remaining = UpdateDiskSpacePolicy.CalculateRemainingBytes(expectedBytes, received);
+        UpdateDiskSpacePolicy.EnsureSufficientSpace(
           destination,
           remaining,
           "Not enough free disk space to download the TUFHelperLite update.");

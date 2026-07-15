@@ -1,6 +1,6 @@
 using System;
 
-namespace TUFHelperLite.Infrastructure.Updates;
+namespace TUFHelperLite.Bootstrap;
 
 internal static class UpdateVersion
 {

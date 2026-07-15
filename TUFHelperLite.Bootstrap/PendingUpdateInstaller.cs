@@ -42,7 +42,32 @@ internal sealed class PendingUpdateInstaller
     _warning("Recovered an interrupted TUFHelperLite update.");
   }
 
-  public AppliedUpdate ApplyPending()
+  public bool HasValidPending(string version)
+  {
+    string pendingRoot = Path.Combine(_updatesRoot, PendingDirectoryName);
+    string manifestPath = Path.Combine(pendingRoot, ManifestFileName);
+    if (!File.Exists(manifestPath)) return false;
+
+    try
+    {
+      PendingUpdateManifest manifest = ReadJson<PendingUpdateManifest>(manifestPath);
+      if (!UpdateVersion.TryParse(manifest?.Version, out Version pendingVersion) ||
+          !UpdateVersion.TryParse(version, out Version expectedVersion) ||
+          pendingVersion != expectedVersion)
+        return false;
+
+      ValidateManifest(manifest, pendingRoot);
+      return true;
+    }
+    catch (Exception exception)
+    {
+      QuarantinePending("invalid");
+      _warning("Ignored an invalid TUFHelperLite update: " + exception.Message);
+      return false;
+    }
+  }
+
+  public AppliedUpdate ApplyPending(string currentVersion)
   {
     string pendingRoot = Path.Combine(_updatesRoot, PendingDirectoryName);
     string manifestPath = Path.Combine(pendingRoot, ManifestFileName);
@@ -52,6 +77,12 @@ internal sealed class PendingUpdateInstaller
     {
       PendingUpdateManifest manifest = ReadJson<PendingUpdateManifest>(manifestPath);
       ValidateManifest(manifest, pendingRoot);
+      if (!UpdateVersion.IsNewer(manifest.Version, currentVersion))
+      {
+        QuarantinePending("stale");
+        _log($"Ignored stale TUFHelperLite {manifest.Version} update files.");
+        return null;
+      }
 
       ApplyJournal journal = new()
       {

@@ -5,9 +5,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
 using Newtonsoft.Json;
-using TUFHelperLite.Infrastructure.Downloads;
-
-namespace TUFHelperLite.Infrastructure.Updates;
+namespace TUFHelperLite.Bootstrap;
 
 internal static class UpdatePackageStager
 {
@@ -118,7 +116,7 @@ internal static class UpdatePackageStager
       allowedEntries.Add(entry);
     }
 
-    DiskSpacePolicy.EnsureSufficientSpace(
+    UpdateDiskSpacePolicy.EnsureSufficientSpace(
       modRoot,
       totalLength,
       "Not enough free disk space to stage the TUFHelperLite update.");
