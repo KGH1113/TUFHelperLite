@@ -48,8 +48,16 @@ internal sealed class DownloadOverlayView : IDisposable
   private readonly TMP_Text _selectionCountText;
   private readonly Image _selectionDifficultyIcon;
   private readonly Vector3 _selectionPanelScale;
+  private readonly RectTransform _warningLayer;
+  private readonly CanvasGroup _warningCanvasGroup;
+  private readonly RectTransform _warningPanel;
+  private readonly TMP_Text _warningAvailableText;
+  private readonly TMP_Text _warningRequiredText;
+  private readonly Button _warningDismissButton;
+  private readonly Vector3 _warningPanelScale;
   private bool _targetVisible;
   private bool _selectionTargetVisible;
+  private bool _warningTargetVisible;
   private string _selectionKey;
 
   private DownloadOverlayView(AssetBundle bundle, GameObject root)
@@ -79,11 +87,19 @@ internal sealed class DownloadOverlayView : IDisposable
     _selectionCountText = Find<TextMeshProUGUI>("SelectionLayer/SelectionPanel/CountText");
     _selectionDifficultyIcon = Find<Image>("SelectionLayer/SelectionPanel/DifficultyIcon");
     _selectionPanelScale = _selectionPanel.localScale;
+    _warningLayer = Find<RectTransform>("DiskWarningLayer");
+    _warningCanvasGroup = _warningLayer.GetComponent<CanvasGroup>();
+    _warningPanel = Find<RectTransform>("DiskWarningLayer/WarningPanel");
+    _warningAvailableText = Find<TextMeshProUGUI>("DiskWarningLayer/WarningPanel/DetailsPanel/AvailableText");
+    _warningRequiredText = Find<TextMeshProUGUI>("DiskWarningLayer/WarningPanel/DetailsPanel/RequiredText");
+    _warningDismissButton = Find<Button>("DiskWarningLayer/WarningPanel/DismissButton");
+    _warningPanelScale = _warningPanel.localScale;
     IndexDifficultyIcons();
     _fallbackIcon = LoadDifficultyIcon(0) ?? _difficultyIcon.sprite;
     _selectionRowTemplate.gameObject.SetActive(false);
     _card.gameObject.SetActive(false);
     _selectionLayer.gameObject.SetActive(false);
+    _warningLayer.gameObject.SetActive(false);
     _root.SetActive(true);
   }
 
@@ -164,6 +180,37 @@ internal sealed class DownloadOverlayView : IDisposable
     _selectionCanvasGroup.blocksRaycasts = false;
   }
 
+  public void ShowDiskSpaceWarning(DownloadJobSnapshot job, Func<string, bool> onDismiss)
+  {
+    if (job == null) return;
+
+    _warningAvailableText.text = $"Available {FormatBytes(job.ErrorAvailableBytes)}";
+    _warningRequiredText.text = $"Required {FormatBytes(job.ErrorRequiredBytes)}";
+    _warningDismissButton.onClick.RemoveAllListeners();
+    _warningDismissButton.onClick.AddListener(() =>
+    {
+      HideDiskSpaceWarning();
+      onDismiss?.Invoke(job.JobId);
+    });
+    if (_warningTargetVisible) return;
+
+    _warningTargetVisible = true;
+    _warningLayer.gameObject.SetActive(true);
+    _warningCanvasGroup.alpha = 0f;
+    _warningCanvasGroup.interactable = true;
+    _warningCanvasGroup.blocksRaycasts = true;
+    _warningPanel.localScale = _warningPanelScale * 0.98f;
+  }
+
+  public void HideDiskSpaceWarning()
+  {
+    if (!_warningTargetVisible) return;
+
+    _warningTargetVisible = false;
+    _warningCanvasGroup.interactable = false;
+    _warningCanvasGroup.blocksRaycasts = false;
+  }
+
   public void Tick(float deltaTime)
   {
     if (_root == null) return;
@@ -200,6 +247,21 @@ internal sealed class DownloadOverlayView : IDisposable
       if (!_selectionTargetVisible && _selectionCanvasGroup.alpha < 0.01f)
       {
         _selectionLayer.gameObject.SetActive(false);
+      }
+    }
+
+    if (_warningLayer.gameObject.activeSelf)
+    {
+      float targetAlpha = _warningTargetVisible ? 1f : 0f;
+      _warningCanvasGroup.alpha = Mathf.Lerp(_warningCanvasGroup.alpha, targetAlpha, blend);
+      _warningPanel.localScale = Vector3.Lerp(
+        _warningPanel.localScale,
+        _warningPanelScale * (_warningTargetVisible ? 1f : 0.985f),
+        blend);
+
+      if (!_warningTargetVisible && _warningCanvasGroup.alpha < 0.01f)
+      {
+        _warningLayer.gameObject.SetActive(false);
       }
     }
   }
@@ -332,6 +394,19 @@ internal sealed class DownloadOverlayView : IDisposable
       RuntimePlatform.LinuxPlayer => "linux",
       _ => throw new PlatformNotSupportedException($"Unsupported platform: {Application.platform}")
     };
+  }
+
+  private static string FormatBytes(long bytes)
+  {
+    const long kibibyte = 1024L;
+    const long mebibyte = 1024L * kibibyte;
+    const long gibibyte = 1024L * mebibyte;
+
+    long value = Math.Max(0L, bytes);
+    if (value >= gibibyte) return $"{value / (double)gibibyte:0.#} GB";
+    if (value >= mebibyte) return $"{value / (double)mebibyte:0.#} MB";
+    if (value >= kibibyte) return $"{value / (double)kibibyte:0.#} KB";
+    return $"{value} B";
   }
 
   private static string ModDirectory()

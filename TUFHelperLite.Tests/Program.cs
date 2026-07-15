@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using TUFHelperLite.Bootstrap;
+using TUFHelperLite.Domain.Errors;
+using TUFHelperLite.Domain.Jobs;
 using TUFHelperLite.Infrastructure.Downloads;
 using TUFHelperLite.Infrastructure.Updates;
 using TUFHelperLite.Integration;
@@ -98,6 +100,13 @@ internal static class Program
     CheckLong("unknown download length fallback", 0, DiskSpacePolicy.CalculateRemainingBytes(-1, 64 * mebibyte));
     CheckLong("known download remaining bytes", 60, DiskSpacePolicy.CalculateRemainingBytes(100, 40));
     CheckLong("completed download remaining bytes", 0, DiskSpacePolicy.CalculateRemainingBytes(100, 100));
+
+    DownloadJob job = new("tuf", "12345", "https://example.com/level.zip", "tuf-12345", false);
+    job.Fail(new InsufficientDiskSpaceException("Not enough storage space.", 512, 2048));
+    DownloadJobSnapshot snapshot = job.Snapshot();
+    CheckString("disk failure error code", "insufficient_disk_space", snapshot.ErrorCode);
+    CheckLong("disk failure available bytes", 512, snapshot.ErrorAvailableBytes);
+    CheckLong("disk failure required bytes", 2048, snapshot.ErrorRequiredBytes);
   }
 
   private static void RunUpdateTests(string root)

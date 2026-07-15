@@ -137,6 +137,7 @@ namespace TUFHelperLite.Editor
             progressFill.fillAmount = 0.42f;
 
             CreateSelectionModal(root.transform, panelSprite, fallbackIcon, font);
+            CreateDiskSpaceWarningModal(root.transform, panelSprite, font);
 
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
             UnityEngine.Object.DestroyImmediate(root);
@@ -227,6 +228,32 @@ namespace TUFHelperLite.Editor
             panel.GetComponent<RectTransform>().sizeDelta = new Vector2(860f, 178f + listHeight + 32f);
             Canvas.ForceUpdateCanvases();
             Selection.activeGameObject = layer.gameObject;
+        }
+
+        [MenuItem("TUFHelperLite/UI/Preview Storage Warning")]
+        public static void PreviewStorageWarning()
+        {
+            GameObject preview = GameObject.Find("DownloadOverlay");
+            if (preview == null)
+            {
+                CreateDownloadOverlay();
+                preview = GameObject.Find("DownloadOverlay");
+            }
+
+            Transform card = preview.transform.Find("DownloadCard");
+            Transform selection = preview.transform.Find("SelectionLayer");
+            Transform warning = preview.transform.Find("DiskWarningLayer");
+            if (card == null || selection == null || warning == null)
+            {
+                throw new InvalidOperationException("The storage warning preview hierarchy is incomplete.");
+            }
+
+            card.gameObject.SetActive(false);
+            selection.gameObject.SetActive(false);
+            warning.gameObject.SetActive(true);
+            warning.GetComponent<CanvasGroup>().alpha = 1f;
+            warning.Find("WarningPanel").localScale = Vector3.one;
+            Selection.activeGameObject = warning.gameObject;
         }
 
         [MenuItem("TUFHelperLite/Build/Build macOS UI Bundle")]
@@ -388,6 +415,104 @@ namespace TUFHelperLite.Editor
 
             Button rowTemplate = CreateSelectionRowTemplate(panel.transform, panelSprite, font);
             rowTemplate.gameObject.SetActive(false);
+            layer.SetActive(false);
+        }
+
+        private static void CreateDiskSpaceWarningModal(Transform parent, Sprite panelSprite, TMP_FontAsset font)
+        {
+            GameObject layer = new GameObject("DiskWarningLayer", typeof(RectTransform), typeof(CanvasGroup));
+            layer.transform.SetParent(parent, false);
+            SetRect(layer.GetComponent<RectTransform>(), Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+
+            CanvasGroup layerGroup = layer.GetComponent<CanvasGroup>();
+            layerGroup.alpha = 1f;
+            layerGroup.interactable = true;
+            layerGroup.blocksRaycasts = true;
+            layerGroup.ignoreParentGroups = true;
+
+            Image backdrop = CreateImage("WarningBackdrop", layer.transform, null, new Color(0f, 0f, 0f, 0.58f));
+            SetRect(backdrop.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+            backdrop.raycastTarget = true;
+
+            Image panel = CreateImage("WarningPanel", layer.transform, panelSprite, new Color32(7, 7, 10, 248));
+            SetRect(panel.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(720f, 420f));
+            panel.type = Image.Type.Sliced;
+            panel.raycastTarget = true;
+
+            Outline panelOutline = panel.gameObject.AddComponent<Outline>();
+            panelOutline.effectColor = new Color(1f, 1f, 1f, 0.13f);
+            panelOutline.effectDistance = new Vector2(1f, -1f);
+
+            Image topSheen = CreateImage("TopSheen", panel.transform, null, new Color(1f, 1f, 1f, 0.13f));
+            SetRect(topSheen.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -1f), new Vector2(-48f, 1f));
+
+            Image icon = CreateImage("WarningIcon", panel.transform, panelSprite, new Color32(255, 181, 71, 45));
+            SetRect(icon.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(44f, -38f), new Vector2(76f, 76f));
+            icon.type = Image.Type.Sliced;
+
+            CreateText("WarningGlyph", icon.transform, font, "!", 46f, FontStyles.Bold,
+                new Color32(255, 190, 86, 255), TextAlignmentOptions.Center,
+                Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), new Vector2(0f, 2f), Vector2.zero);
+
+            CreateText("EyebrowText", panel.transform, font, "STORAGE WARNING", 18f, FontStyles.Bold,
+                new Color32(255, 190, 86, 255), TextAlignmentOptions.Left,
+                new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(142f, -42f), new Vector2(520f, 24f));
+
+            CreateText("TitleText", panel.transform, font, "Not enough storage space", 38f, FontStyles.Normal,
+                new Color32(246, 246, 248, 255), TextAlignmentOptions.Left,
+                new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(142f, -74f), new Vector2(520f, 52f));
+
+            Image divider = CreateImage("Divider", panel.transform, null, new Color(1f, 1f, 1f, 0.09f));
+            SetRect(divider.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(36f, -150f), new Vector2(648f, 1f));
+
+            TextMeshProUGUI body = CreateText("BodyText", panel.transform, font,
+                "Free up some space and retry the download. Your existing files are safe.",
+                22f, FontStyles.Normal, new Color32(174, 177, 187, 255), TextAlignmentOptions.TopLeft,
+                new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(44f, -176f), new Vector2(632f, 56f));
+            body.textWrappingMode = TextWrappingModes.Normal;
+            body.overflowMode = TextOverflowModes.Overflow;
+
+            Image details = CreateImage("DetailsPanel", panel.transform, panelSprite, new Color32(24, 26, 33, 245));
+            SetRect(details.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(44f, -248f), new Vector2(632f, 60f));
+            details.type = Image.Type.Sliced;
+
+            CreateText("AvailableText", details.transform, font, "Available 842 MB", 21f, FontStyles.Normal,
+                new Color32(180, 184, 194, 255), TextAlignmentOptions.MidlineLeft,
+                Vector2.zero, Vector2.one, new Vector2(0f, 0.5f), new Vector2(22f, 0f), new Vector2(276f, 0f));
+
+            CreateText("RequiredText", details.transform, font, "Required 2.4 GB", 21f, FontStyles.Normal,
+                new Color32(255, 201, 119, 255), TextAlignmentOptions.MidlineRight,
+                Vector2.zero, Vector2.one, new Vector2(1f, 0.5f), new Vector2(-22f, 0f), new Vector2(276f, 0f));
+
+            TextMeshProUGUI helper = CreateText("HelperText", panel.transform, font, "Free up space, then try the download again.", 18f, FontStyles.Normal,
+                new Color32(128, 132, 143, 255), TextAlignmentOptions.MidlineLeft,
+                new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(44f, 36f), new Vector2(420f, 54f));
+            helper.enableAutoSizing = true;
+            helper.fontSizeMin = 14f;
+            helper.fontSizeMax = 18f;
+
+            Image dismissImage = CreateImage("DismissButton", panel.transform, panelSprite, new Color32(255, 181, 71, 255));
+            SetRect(dismissImage.rectTransform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-44f, 36f), new Vector2(176f, 54f));
+            dismissImage.type = Image.Type.Sliced;
+            dismissImage.raycastTarget = true;
+
+            Button dismissButton = dismissImage.gameObject.AddComponent<Button>();
+            dismissButton.targetGraphic = dismissImage;
+            dismissButton.transition = Selectable.Transition.ColorTint;
+            ColorBlock buttonColors = dismissButton.colors;
+            buttonColors.normalColor = Color.white;
+            buttonColors.highlightedColor = new Color32(255, 224, 174, 255);
+            buttonColors.pressedColor = new Color32(231, 150, 43, 255);
+            buttonColors.selectedColor = buttonColors.highlightedColor;
+            buttonColors.disabledColor = new Color32(120, 120, 120, 180);
+            buttonColors.colorMultiplier = 1f;
+            buttonColors.fadeDuration = 0.12f;
+            dismissButton.colors = buttonColors;
+
+            CreateText("Label", dismissImage.transform, font, "Got it", 22f, FontStyles.Bold,
+                new Color32(17, 17, 20, 255), TextAlignmentOptions.Center,
+                Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+
             layer.SetActive(false);
         }
 

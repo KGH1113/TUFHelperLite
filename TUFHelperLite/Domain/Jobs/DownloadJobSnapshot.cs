@@ -27,6 +27,9 @@ public sealed class DownloadJobSnapshot
   public bool Opened { get; set; }
   public bool FromCache { get; set; }
   public string Error { get; set; }
+  public string ErrorCode { get; set; }
+  public long ErrorAvailableBytes { get; set; }
+  public long ErrorRequiredBytes { get; set; }
   public long CreatedAtUnixMs { get; set; }
   public long UpdatedAtUnixMs { get; set; }
   public bool Done { get; set; }

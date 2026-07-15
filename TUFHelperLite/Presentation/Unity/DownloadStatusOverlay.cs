@@ -16,6 +16,7 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
   private float _nextSnapshotAt;
   private float _displayedProgress;
   private string _displayedJobId;
+  private string _displayedDiskWarningJobId;
 
   public static void EnsureInstalled()
   {
@@ -74,6 +75,16 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
         _view?.SetVisible(false);
         _view?.ShowSelection(_job, LevelJobService.SelectLevel);
       }
+      else if (IsDiskSpaceFailure(_job))
+      {
+        _view?.SetVisible(false);
+        _view?.HideSelection();
+        if (!string.Equals(_displayedDiskWarningJobId, _job.JobId, StringComparison.Ordinal))
+        {
+          _displayedDiskWarningJobId = _job.JobId;
+          _view?.ShowDiskSpaceWarning(_job, LevelJobService.DismissModal);
+        }
+      }
       else
       {
         _view?.HideSelection();
@@ -91,7 +102,7 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
 
     _view?.Tick(Time.unscaledDeltaTime);
 
-    if (_job == null || _job.WaitingForSelection || _view == null) return;
+    if (_job == null || _job.WaitingForSelection || IsDiskSpaceFailure(_job) || _view == null) return;
 
     bool determinate = _job.Progress >= 0;
     float target = determinate
@@ -108,5 +119,10 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
 
     _view?.Dispose();
     _instance = null;
+  }
+
+  private static bool IsDiskSpaceFailure(DownloadJobSnapshot job)
+  {
+    return string.Equals(job?.ErrorCode, "insufficient_disk_space", StringComparison.Ordinal);
   }
 }

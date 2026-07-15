@@ -31,6 +31,7 @@ public static class LevelJobService
 
   private static readonly object Lock = new();
   private static readonly Dictionary<string, DownloadJob> Jobs = new();
+  private static readonly HashSet<string> DismissedModalJobIds = new();
   private static readonly Queue<QueuedWork> Queue = new();
   private static string _autoOpenJobId;
   private static bool _workerRunning;
@@ -120,10 +121,23 @@ public static class LevelJobService
     {
       return Jobs.Values
         .Select(job => job.Snapshot())
-        .Where(snapshot => !snapshot.Done)
-        .OrderBy(snapshot => snapshot.Status == "waiting_selection" ? 0 : snapshot.Status == "running" ? 1 : 2)
+        .Where(snapshot => !snapshot.Done || IsUndismissedDiskSpaceFailure(snapshot))
+        .OrderBy(snapshot => IsUndismissedDiskSpaceFailure(snapshot) ? 0 : snapshot.Status == "waiting_selection" ? 1 : snapshot.Status == "running" ? 2 : 3)
         .ThenBy(snapshot => snapshot.CreatedAtUnixMs)
         .FirstOrDefault();
+    }
+  }
+
+  internal static bool DismissModal(string jobId)
+  {
+    lock (Lock)
+    {
+      if (!Jobs.TryGetValue(jobId ?? "", out DownloadJob job)) return false;
+      DownloadJobSnapshot snapshot = job.Snapshot();
+      if (!IsDiskSpaceFailure(snapshot)) return false;
+
+      DismissedModalJobIds.Add(job.JobId);
+      return true;
     }
   }
 
@@ -307,8 +321,19 @@ public static class LevelJobService
       foreach (string jobId in expiredJobIds)
       {
         Jobs.Remove(jobId);
+        DismissedModalJobIds.Remove(jobId);
       }
     }
+  }
+
+  private static bool IsUndismissedDiskSpaceFailure(DownloadJobSnapshot snapshot)
+  {
+    return IsDiskSpaceFailure(snapshot) && !DismissedModalJobIds.Contains(snapshot.JobId);
+  }
+
+  private static bool IsDiskSpaceFailure(DownloadJobSnapshot snapshot)
+  {
+    return string.Equals(snapshot?.ErrorCode, "insufficient_disk_space", StringComparison.Ordinal);
   }
 
   private static void Complete(DownloadJob job, LevelDownloadResult result, bool openAfterDownload)

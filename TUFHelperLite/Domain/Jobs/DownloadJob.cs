@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading;
+using TUFHelperLite.Domain.Errors;
 using TUFHelperLite.Domain.Levels;
 
 namespace TUFHelperLite.Domain.Jobs;
@@ -29,6 +30,9 @@ public sealed class DownloadJob
   private bool _opened;
   private bool _fromCache;
   private string _error;
+  private string _errorCode;
+  private long _errorAvailableBytes;
+  private long _errorRequiredBytes;
   private long _updatedAtUnixMs;
 
   public DownloadJob(string kind, string levelId, string sourceUrl, string cacheKey, bool openAfterDownload)
@@ -215,6 +219,12 @@ public sealed class DownloadJob
       _stage = "failed";
       _message = "Download failed";
       _error = exception.Message;
+      if (exception is InsufficientDiskSpaceException diskSpace)
+      {
+        _errorCode = "insufficient_disk_space";
+        _errorAvailableBytes = diskSpace.AvailableBytes;
+        _errorRequiredBytes = diskSpace.RequiredBytes;
+      }
       Touch();
     }
   }
@@ -262,6 +272,9 @@ public sealed class DownloadJob
         Opened = _opened,
         FromCache = _fromCache,
         Error = _error,
+        ErrorCode = _errorCode,
+        ErrorAvailableBytes = _errorAvailableBytes,
+        ErrorRequiredBytes = _errorRequiredBytes,
         CreatedAtUnixMs = CreatedAtUnixMs,
         UpdatedAtUnixMs = _updatedAtUnixMs,
         Done = IsTerminalStatus(_status)
