@@ -75,7 +75,7 @@ cp "$PROJECT/TUFHelperLite/AdofaiIpcBootstrap.json" "$DEST/"
 cp "$PROJECT/THIRD_PARTY_NOTICES.md" "$DEST/"
 rm -f "$DEST/JAModInfo.json" "$DEST/JAMod.Bootstrap.dll"
 rm -f "$DEST"/JAMod.Bootstrap.dll.*.cache
-cp "$OUT/TUFHelperLite.dll" "$DEST/"
+cp "$OUT/TUFHelperLite.Bootstrap.dll" "$DEST/TUFHelperLite.dll"
 cp "$OUT/TUFHelperLite.Core.dll" "$DEST/"
 cp "$ADOFAIIPC_BOOTSTRAP_DLL" "$DEST/"
 

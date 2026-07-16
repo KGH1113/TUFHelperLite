@@ -3,7 +3,7 @@
     <TargetFramework>netstandard2.1</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
-    <AssemblyName>TUFHelperLite</AssemblyName>
+    <AssemblyName>TUFHelperLite.Bootstrap</AssemblyName>
     <RootNamespace>TUFHelperLite.Bootstrap</RootNamespace>
     <AdofaiDir Condition="'$(AdofaiDir)' == '' and '$(ADOFAI_DIR)' != ''">$(ADOFAI_DIR)</AdofaiDir>
     <AdofaiDir Condition="'$(AdofaiDir)' == ''">$(HOME)/Library/Application Support/Steam/steamapps/common/A Dance of Fire and Ice</AdofaiDir>

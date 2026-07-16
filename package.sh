@@ -106,7 +106,7 @@ mkdir -p "$STAGE"
 cp "$PROJECT/TUFHelperLite/Info.json" "$STAGE/"
 cp "$PROJECT/TUFHelperLite/AdofaiIpcBootstrap.json" "$STAGE/"
 cp "$PROJECT/THIRD_PARTY_NOTICES.md" "$STAGE/"
-cp "$OUT/TUFHelperLite.dll" "$STAGE/"
+cp "$OUT/TUFHelperLite.Bootstrap.dll" "$STAGE/TUFHelperLite.dll"
 cp "$OUT/TUFHelperLite.Core.dll" "$STAGE/"
 cp "$ADOFAIIPC_BOOTSTRAP_DLL" "$STAGE/"
 

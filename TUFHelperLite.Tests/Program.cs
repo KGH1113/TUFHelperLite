@@ -54,6 +54,10 @@ internal static class Program
         CreateLevel(root, "", "chart.adofai")));
 
       RunDiskSpacePolicyTests();
+      CheckString(
+        "bootstrap assembly identity",
+        "TUFHelperLite.Bootstrap",
+        typeof(Loader).Assembly.GetName().Name);
       RunUpdateTests(updateRoot);
 
       if (Failures.Count == 0)
