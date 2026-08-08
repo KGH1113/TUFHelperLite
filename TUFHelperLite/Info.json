@@ -3,7 +3,7 @@
   "DisplayName": "TUFHelperLite",
   "Author": "impl",
   "Version": "0.1.2",
-  "AssemblyName": "AdofaiIpc.Bootstrap.dll",
-  "EntryMethod": "AdofaiIpc.Bootstrap.Bootstrap.Load",
+  "AssemblyName": "AdofaiIpc.DependencyShim.dll",
+  "EntryMethod": "AdofaiIpc.DependencyShim.DependencyShim.Load",
   "LoadAfter": ["AdofaiIpc"]
 }

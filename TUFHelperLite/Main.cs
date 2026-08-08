@@ -85,20 +85,20 @@ public sealed class Main
   {
     if (_enabled) return;
 
-    ModStatus.IpcDependencyState ipcState = ModStatus.GetAdofaiIpcState();
-    ModStatus.SetAdofaiIpcState(ipcState);
-
-    if (ipcState != ModStatus.IpcDependencyState.Available)
+    try
     {
-      Warning("TUFHelperLite needs AdofaiIpc. Install and enable AdofaiIpc to use browser IPC.");
-      return;
+      _ipcFeature = new IpcFeature();
+      _ipcFeature.Enable();
+      DownloadStatusOverlay.EnsureInstalled();
+      _ipcFeature.MarkReady();
+      _enabled = true;
+      Log("TUFHelperLite initialized");
     }
-
-    _ipcFeature = new IpcFeature();
-    _ipcFeature.Enable();
-    DownloadStatusOverlay.EnsureInstalled();
-    _enabled = true;
-    Log("TUFHelperLite initialized");
+    catch (Exception exception)
+    {
+      _ipcFeature?.MarkError(exception);
+      throw;
+    }
   }
 
   private void Disable()

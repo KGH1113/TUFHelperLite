@@ -118,6 +118,7 @@ internal static class Program
 
   private static void RunUpdateTests(string root)
   {
+    AdofaiIpc.DependencyShim.DependencyShim.Reset();
     Directory.CreateDirectory(root);
     CheckTrue("version with v prefix", UpdateVersion.IsNewer("v0.2.0", "0.1.0"));
     CheckFalse("same update version", UpdateVersion.IsNewer("0.1.0", "0.1.0"));
@@ -167,6 +168,8 @@ internal static class Program
     CheckString("updated core file", "new-core", File.ReadAllText(Path.Combine(modRoot, "TUFHelperLite.Core.dll")));
     CheckString("user data preserved", "preserve-me", File.ReadAllText(Path.Combine(modRoot, "Data", "user-data.json")));
     installer.Commit(firstUpdate);
+    CheckLong("successful core update keeps bootstrap trial", 0,
+      AdofaiIpc.DependencyShim.DependencyShim.DiscardCount);
     CheckFalse("pending update removed after commit", Directory.Exists(Path.Combine(modRoot, "Data", "updates", "pending")));
 
     string rollbackArchive = CreateUpdateArchive(root, "rollback.zip", "0.3.0", "rollback-core");
@@ -177,6 +180,8 @@ internal static class Program
       UpdatePackageStager.ComputeSha256(rollbackArchive));
     AppliedUpdate rollbackUpdate = installer.ApplyPending("0.2.0");
     installer.Rollback(rollbackUpdate);
+    CheckLong("core rollback discards bootstrap trial", 1,
+      AdofaiIpc.DependencyShim.DependencyShim.DiscardCount);
     CheckString("core restored after rollback", "new-core", File.ReadAllText(Path.Combine(modRoot, "TUFHelperLite.Core.dll")));
     CheckTrue(
       "failed update quarantined",
@@ -369,7 +374,7 @@ internal static class Program
     using FileStream stream = new(path, FileMode.Create, FileAccess.Write, FileShare.None);
     using ZipArchive archive = new(stream, ZipArchiveMode.Create);
     AddZipText(archive, "TUFHelperLite/TUFHelperLite.dll", "stable-bootstrap");
-    AddZipText(archive, "TUFHelperLite/AdofaiIpc.Bootstrap.dll", "dependency-bootstrap");
+    AddZipText(archive, "TUFHelperLite/DependencyBootstrap/versions/0.2.1/AdofaiIpc.Bootstrap.dll", "dependency-bootstrap");
     AddZipText(archive, "TUFHelperLite/TUFHelperLite.Core.dll", coreContent);
     AddZipText(archive, "TUFHelperLite/Info.json", $"{{\"Version\":\"{version}\"}}");
     AddZipText(archive, "TUFHelperLite/AdofaiIpcBootstrap.json", "{}");

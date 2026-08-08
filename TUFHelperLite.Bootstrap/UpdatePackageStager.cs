@@ -167,6 +167,8 @@ internal static class UpdatePackageStager
       throw new InvalidDataException("Update package is missing Info.json.");
     if (!files.Any(file => file.Path.Equals("AdofaiIpcBootstrap.json", StringComparison.OrdinalIgnoreCase)))
       throw new InvalidDataException("Update package is missing AdofaiIpcBootstrap.json.");
+    if (files.Count(file => IsDependencyBootstrapCandidate(file.Path)) != 1)
+      throw new InvalidDataException("Update package must contain exactly one versioned dependency bootstrap.");
 
     string infoPath = ResolveInside(payloadRoot, "Info.json");
     PackageInfo info = JsonConvert.DeserializeObject<PackageInfo>(File.ReadAllText(infoPath));
@@ -193,15 +195,27 @@ internal static class UpdatePackageStager
            path.Equals("Info.json", StringComparison.OrdinalIgnoreCase) ||
            path.Equals("AdofaiIpcBootstrap.json", StringComparison.OrdinalIgnoreCase) ||
            path.Equals("THIRD_PARTY_NOTICES.md", StringComparison.OrdinalIgnoreCase) ||
-           path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase);
+           path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) ||
+           IsDependencyBootstrapCandidate(path);
   }
 
   private static bool IsIgnoredPackageFile(string path)
   {
     return path.Equals("TUFHelperLite.dll", StringComparison.OrdinalIgnoreCase) ||
            path.Equals("AdofaiIpc.Bootstrap.dll", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("AdofaiIpc.DependencyShim.dll", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("DependencyBootstrap/state.json", StringComparison.OrdinalIgnoreCase) ||
            path.Equals("TUFHelperLite.pdb", StringComparison.OrdinalIgnoreCase) ||
            path.Equals("TUFHelperLite.Core.pdb", StringComparison.OrdinalIgnoreCase);
+  }
+
+  internal static bool IsDependencyBootstrapCandidate(string path)
+  {
+    if (string.IsNullOrWhiteSpace(path) ||
+        !path.StartsWith("DependencyBootstrap/versions/", StringComparison.OrdinalIgnoreCase) ||
+        !path.EndsWith("/AdofaiIpc.Bootstrap.dll", StringComparison.OrdinalIgnoreCase)) return false;
+    string[] parts = path.Split('/');
+    return parts.Length == 4 && !string.IsNullOrWhiteSpace(parts[2]);
   }
 
   private static bool IsSymbolicLink(ZipArchiveEntry entry)

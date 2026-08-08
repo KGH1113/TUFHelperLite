@@ -92,11 +92,18 @@ internal sealed class PendingUpdateInstaller
       };
       Directory.CreateDirectory(journal.BackupRoot);
       string journalPath = Path.Combine(_updatesRoot, JournalFileName);
-      WriteJsonAtomic(journalPath, journal);
 
       try
       {
-        foreach (PendingUpdateFile file in manifest.Files.OrderBy(item => item.Path, StringComparer.Ordinal))
+        PendingUpdateFile bootstrap = manifest.Files.Single(file =>
+          UpdatePackageStager.IsDependencyBootstrapCandidate(file.Path));
+        string bootstrapSource = ResolveInside(Path.Combine(pendingRoot, PayloadDirectoryName), bootstrap.Path);
+        journal.BootstrapTrial = DependencyBootstrapShim.Stage(_modRoot, bootstrapSource);
+        WriteJsonAtomic(journalPath, journal);
+
+        foreach (PendingUpdateFile file in manifest.Files
+                   .Where(item => !UpdatePackageStager.IsDependencyBootstrapCandidate(item.Path))
+                   .OrderBy(item => item.Path, StringComparer.Ordinal))
         {
           ApplyFile(pendingRoot, file, journal, journalPath);
         }
@@ -215,6 +222,12 @@ internal sealed class PendingUpdateInstaller
       }
     }
 
+    if (!string.IsNullOrWhiteSpace(journal.BootstrapTrial))
+    {
+      try { DependencyBootstrapShim.Discard(_modRoot, journal.BootstrapTrial); }
+      catch (Exception exception) { _warning("Could not discard dependency bootstrap trial: " + exception.Message); }
+    }
+
     TryDeleteDirectory(journal.BackupRoot);
   }
 
@@ -229,7 +242,8 @@ internal sealed class PendingUpdateInstaller
                    path.Equals("Info.json", StringComparison.OrdinalIgnoreCase) ||
                    path.Equals("AdofaiIpcBootstrap.json", StringComparison.OrdinalIgnoreCase) ||
                    path.Equals("THIRD_PARTY_NOTICES.md", StringComparison.OrdinalIgnoreCase) ||
-                   path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase);
+                   path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) ||
+                   UpdatePackageStager.IsDependencyBootstrapCandidate(path);
     if (!allowed) throw new InvalidDataException("Update path is not allowed: " + value);
     return path;
   }
@@ -339,6 +353,7 @@ internal sealed class ApplyJournal
 {
   public string Version { get; set; }
   public string BackupRoot { get; set; }
+  public string BootstrapTrial { get; set; }
   public List<AppliedFile> Files { get; set; }
 }
 

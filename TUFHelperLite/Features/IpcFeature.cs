@@ -21,4 +21,15 @@ public sealed class IpcFeature
     IpcRegistration.Unregister();
     _enabled = false;
   }
+
+  public void MarkReady()
+  {
+    if (!_enabled) throw new System.InvalidOperationException("TUFHelperLite IPC is not enabled.");
+    IpcRegistration.MarkReady();
+  }
+
+  public void MarkError(System.Exception exception)
+  {
+    IpcRegistration.MarkError(exception);
+  }
 }

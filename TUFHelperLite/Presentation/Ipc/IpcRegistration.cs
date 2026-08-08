@@ -9,19 +9,25 @@ namespace TUFHelperLite.Presentation.Ipc;
 
 public static class IpcRegistration
 {
+  private static global::AdofaiIpc.AdofaiIpcNamespace _namespace;
+
   public static void Register()
   {
-    try
-    {
-      RegisterHandlers();
-      ModStatus.SetNormal();
-    }
-    catch (Exception e)
-    {
-      ModStatus.SetAdofaiIpcState(ModStatus.GetAdofaiIpcState());
-      Main.Instance.Warning("TUFHelperLite needs AdofaiIpc. IPC commands were not registered.");
-      Main.Instance.LogException(e);
-    }
+    _namespace = RegisterNamespace();
+    RegisterHandlers(_namespace);
+    ModStatus.SetNormal();
+  }
+
+  public static void MarkReady()
+  {
+    _namespace.MarkReady();
+  }
+
+  public static void MarkError(Exception exception)
+  {
+    _namespace?.MarkError(
+      "tufhelperlite_initialization_failed",
+      exception?.Message ?? "TUFHelperLite initialization failed.");
   }
 
   public static void Unregister()
@@ -29,6 +35,7 @@ public static class IpcRegistration
     try
     {
       global::AdofaiIpc.AdofaiIpc.UnregisterNamespace("tufhelperlite");
+      _namespace = null;
     }
     catch (Exception e)
     {
@@ -36,10 +43,24 @@ public static class IpcRegistration
     }
   }
 
-  private static void RegisterHandlers()
+  private static void RegisterHandlers(global::AdofaiIpc.AdofaiIpcNamespace ipc)
   {
-    global::AdofaiIpc.AdofaiIpcNamespace ipc =
-      global::AdofaiIpc.AdofaiIpc.RegisterNamespace("tufhelperlite", new global::AdofaiIpc.IpcNamespaceInfo
+    ipc.Register("health", Health);
+    ipc.Register("level.open-from-id", OpenFromId);
+    ipc.Register("level.open-from-url", OpenFromUrl);
+    ipc.Register("level.download", Download);
+    ipc.Register("level.status", Status);
+    ipc.Register("level.jobs", Jobs);
+    ipc.Register("level.downloaded-ids", DownloadedIds);
+    ipc.Register("level.cancel", Cancel);
+    ipc.Register("level.select", Select);
+  }
+
+  private static global::AdofaiIpc.AdofaiIpcNamespace RegisterNamespace()
+  {
+    return global::AdofaiIpc.AdofaiIpc.RegisterNamespace(
+      "tufhelperlite",
+      new global::AdofaiIpc.IpcNamespaceInfo
       {
         DisplayName = ModStatus.DisplayName,
         Version = ModStatus.Version,
@@ -51,16 +72,6 @@ public static class IpcRegistration
           "https://guhyeons-macbook-pro.tail234c02.ts.net"
         }
       });
-
-    ipc.Register("health", Health);
-    ipc.Register("level.open-from-id", OpenFromId);
-    ipc.Register("level.open-from-url", OpenFromUrl);
-    ipc.Register("level.download", Download);
-    ipc.Register("level.status", Status);
-    ipc.Register("level.jobs", Jobs);
-    ipc.Register("level.downloaded-ids", DownloadedIds);
-    ipc.Register("level.cancel", Cancel);
-    ipc.Register("level.select", Select);
   }
 
   private static object Health(IpcRequest request)

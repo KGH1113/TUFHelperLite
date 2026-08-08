@@ -60,7 +60,8 @@ Required at runtime:
 
 - A Dance of Fire and Ice
 - UnityModManager
-- AdofaiIpc, which is installed automatically when it is missing
+- AdofaiIpc 0.2.0 or newer. A missing dependency is installed automatically. Disabled,
+  outdated, installation-failure, and load-failure states are shown by the shared AdofaiIpc dialog.
 - TUFHelperLite installed under the ADOFAI `Mods/TUFHelperLite` directory
 
 ## Build
@@ -87,6 +88,12 @@ and package downloads, then verifies, stages, and applies a newer core in the
 same game launch. Network or verification failures fall back to the installed
 version. The first release that introduces `TUFHelperLite.Core.dll` must be
 installed manually once so the fixed bootstrap is present.
+
+The package also contains a fixed `AdofaiIpc.DependencyShim.dll` and a versioned
+dependency bootstrap. A verified TUFHelperLite update stages the bootstrap as a
+trial for the next game launch; core rollback discards the matching trial. The
+first release adopting this layout must be installed manually once. The core no
+longer owns an IPC compatibility modal or placeholder namespace.
 
 ## Tech Stack
 

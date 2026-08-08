@@ -22,6 +22,7 @@ UNITY_MOD_MANAGER_DLL="${UNITY_MOD_MANAGER_DLL:-$ADOFAI_MANAGED/UnityModManager/
 HARMONY_DLL="${HARMONY_DLL:-$ADOFAI_MANAGED/UnityModManager/0Harmony.dll}"
 ADOFAIIPC_DLL="${ADOFAIIPC_DLL:-$ADOFAI_MODS_DIR/AdofaiIpc/AdofaiIpc.dll}"
 ADOFAIIPC_BOOTSTRAP_DLL="${ADOFAIIPC_BOOTSTRAP_DLL:-$ADOFAI_MODS_DIR/AdofaiIpc/AdofaiIpc.Bootstrap.dll}"
+ADOFAIIPC_DEPENDENCY_SHIM_DLL="${ADOFAIIPC_DEPENDENCY_SHIM_DLL:-$ADOFAI_MODS_DIR/AdofaiIpc/AdofaiIpc.DependencyShim.dll}"
 ADOFAIIPC_INFO_JSON="${ADOFAIIPC_INFO_JSON:-$ADOFAI_MODS_DIR/AdofaiIpc/Info.json}"
 ADOFAIIPC_BOOTSTRAP_LOCK="$PROJECT/TUFHelperLite/AdofaiIpcBootstrap.lock"
 
@@ -66,6 +67,7 @@ require_file "$UNITY_MOD_MANAGER_DLL"
 require_file "$HARMONY_DLL"
 require_file "$ADOFAIIPC_DLL"
 require_file "$ADOFAIIPC_BOOTSTRAP_DLL"
+require_file "$ADOFAIIPC_DEPENDENCY_SHIM_DLL"
 require_file "$ADOFAIIPC_INFO_JSON"
 require_file "$ADOFAIIPC_BOOTSTRAP_LOCK"
 
@@ -83,6 +85,14 @@ if [ "$bootstrap_sha256" != "$ADOFAIIPC_BOOTSTRAP_SHA256" ]; then
   echo "AdofaiIpc Bootstrap checksum mismatch." >&2
   echo "Expected: $ADOFAIIPC_BOOTSTRAP_SHA256" >&2
   echo "Actual:   $bootstrap_sha256" >&2
+  exit 1
+fi
+
+shim_sha256="$(shasum -a 256 "$ADOFAIIPC_DEPENDENCY_SHIM_DLL" | awk '{print $1}')"
+if [ "$shim_sha256" != "$ADOFAIIPC_DEPENDENCY_SHIM_SHA256" ]; then
+  echo "AdofaiIpc dependency shim checksum mismatch." >&2
+  echo "Expected: $ADOFAIIPC_DEPENDENCY_SHIM_SHA256" >&2
+  echo "Actual:   $shim_sha256" >&2
   exit 1
 fi
 
@@ -108,7 +118,11 @@ cp "$PROJECT/TUFHelperLite/AdofaiIpcBootstrap.json" "$STAGE/"
 cp "$PROJECT/THIRD_PARTY_NOTICES.md" "$STAGE/"
 cp "$OUT/TUFHelperLite.Bootstrap.dll" "$STAGE/TUFHelperLite.dll"
 cp "$OUT/TUFHelperLite.Core.dll" "$STAGE/"
-cp "$ADOFAIIPC_BOOTSTRAP_DLL" "$STAGE/"
+cp "$ADOFAIIPC_DEPENDENCY_SHIM_DLL" "$STAGE/"
+mkdir -p "$STAGE/DependencyBootstrap/versions/$ADOFAIIPC_BOOTSTRAP_VERSION"
+cp "$ADOFAIIPC_BOOTSTRAP_DLL" "$STAGE/DependencyBootstrap/versions/$ADOFAIIPC_BOOTSTRAP_VERSION/"
+printf '{\n  "SchemaVersion": 1,\n  "Current": "%s",\n  "Previous": null,\n  "Trial": null\n}\n' \
+  "$ADOFAIIPC_BOOTSTRAP_VERSION" > "$STAGE/DependencyBootstrap/state.json"
 
 if [ -d "$PROJECT/TUFHelperLite/Assets" ]; then
   cp -R "$PROJECT/TUFHelperLite/Assets" "$STAGE/"

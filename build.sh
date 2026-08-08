@@ -22,6 +22,8 @@ UNITY_MOD_MANAGER_DLL="${UNITY_MOD_MANAGER_DLL:-$ADOFAI_MANAGED/UnityModManager/
 HARMONY_DLL="${HARMONY_DLL:-$ADOFAI_MANAGED/UnityModManager/0Harmony.dll}"
 ADOFAIIPC_DLL="${ADOFAIIPC_DLL:-$ADOFAI_MODS_DIR/AdofaiIpc/AdofaiIpc.dll}"
 ADOFAIIPC_BOOTSTRAP_DLL="${ADOFAIIPC_BOOTSTRAP_DLL:-$ADOFAI_MODS_DIR/AdofaiIpc/AdofaiIpc.Bootstrap.dll}"
+ADOFAIIPC_DEPENDENCY_SHIM_DLL="${ADOFAIIPC_DEPENDENCY_SHIM_DLL:-$ADOFAI_MODS_DIR/AdofaiIpc/AdofaiIpc.DependencyShim.dll}"
+ADOFAIIPC_BOOTSTRAP_VERSION="${ADOFAIIPC_BOOTSTRAP_VERSION:-0.2.1}"
 
 project_path() {
   case "$1" in
@@ -53,6 +55,7 @@ require_file "$UNITY_MOD_MANAGER_DLL"
 require_file "$HARMONY_DLL"
 require_file "$ADOFAIIPC_DLL"
 require_file "$ADOFAIIPC_BOOTSTRAP_DLL"
+require_file "$ADOFAIIPC_DEPENDENCY_SHIM_DLL"
 
 DOTNET_ROOT="$DOTNET_ROOT" DOTNET_ROOT_ARM64="$DOTNET_ROOT_ARM64" \
 "$DOTNET_EXE" build "$PROJECT/TUFHelperLite/TUFHelperLite.csproj" \
@@ -77,7 +80,11 @@ rm -f "$DEST/JAModInfo.json" "$DEST/JAMod.Bootstrap.dll"
 rm -f "$DEST"/JAMod.Bootstrap.dll.*.cache
 cp "$OUT/TUFHelperLite.Bootstrap.dll" "$DEST/TUFHelperLite.dll"
 cp "$OUT/TUFHelperLite.Core.dll" "$DEST/"
-cp "$ADOFAIIPC_BOOTSTRAP_DLL" "$DEST/"
+cp "$ADOFAIIPC_DEPENDENCY_SHIM_DLL" "$DEST/"
+mkdir -p "$DEST/DependencyBootstrap/versions/$ADOFAIIPC_BOOTSTRAP_VERSION"
+cp "$ADOFAIIPC_BOOTSTRAP_DLL" "$DEST/DependencyBootstrap/versions/$ADOFAIIPC_BOOTSTRAP_VERSION/"
+printf '{\n  "SchemaVersion": 1,\n  "Current": "%s",\n  "Previous": null,\n  "Trial": null\n}\n' \
+  "$ADOFAIIPC_BOOTSTRAP_VERSION" > "$DEST/DependencyBootstrap/state.json"
 
 if [ -d "$PROJECT/TUFHelperLite/Assets" ]; then
   rm -rf "$DEST/Assets"
