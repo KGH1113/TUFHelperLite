@@ -169,6 +169,15 @@ internal static class UpdatePackageStager
       throw new InvalidDataException("Update package is missing AdofaiIpcBootstrap.json.");
     if (files.Count(file => IsDependencyBootstrapCandidate(file.Path)) != 1)
       throw new InvalidDataException("Update package must contain exactly one versioned dependency bootstrap.");
+    string[] migrationFiles =
+    {
+      "Assets/AdofaiIpc/AdofaiIpc.DependencyShim.dll",
+      "Assets/AdofaiIpc/AdofaiIpc.Bootstrap.dll",
+      "Assets/AdofaiIpc/AdofaiIpc.Migration.dll"
+    };
+    foreach (string path in migrationFiles)
+      if (!files.Any(file => file.Path.Equals(path, StringComparison.OrdinalIgnoreCase)))
+        throw new InvalidDataException("Update package is missing " + path + ".");
 
     string infoPath = ResolveInside(payloadRoot, "Info.json");
     PackageInfo info = JsonConvert.DeserializeObject<PackageInfo>(File.ReadAllText(infoPath));

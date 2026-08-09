@@ -24,6 +24,9 @@ public sealed class Main
   {
     try
     {
+      if (AdofaiIpcMigrationBridge.PrepareAndNotify(modEntry))
+        return true;
+
       Instance = new Main(modEntry);
       modEntry.OnToggle = OnToggle;
       modEntry.OnUnload = OnUnload;

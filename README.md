@@ -60,7 +60,7 @@ Required at runtime:
 
 - A Dance of Fire and Ice
 - UnityModManager
-- AdofaiIpc 0.2.0 or newer. A missing dependency is installed automatically. Disabled,
+- AdofaiIpc 0.3.0 or newer. A missing dependency is installed automatically. Disabled,
   outdated, installation-failure, and load-failure states are shown by the shared AdofaiIpc dialog.
 - TUFHelperLite installed under the ADOFAI `Mods/TUFHelperLite` directory
 
@@ -69,13 +69,19 @@ Required at runtime:
 Build and install locally:
 
 ```bash
-./build.sh
+./scripts/run.sh build
 ```
 
 Create a package zip:
 
 ```bash
-./package.sh
+./scripts/run.sh package
+```
+
+Validate the shell workflow:
+
+```bash
+./scripts/run.sh check
 ```
 
 The package command creates both `build/TUFHelperLite.zip` and
@@ -92,8 +98,10 @@ installed manually once so the fixed bootstrap is present.
 The package also contains a fixed `AdofaiIpc.DependencyShim.dll` and a versioned
 dependency bootstrap. A verified TUFHelperLite update stages the bootstrap as a
 trial for the next game launch; core rollback discards the matching trial. The
-first release adopting this layout must be installed manually once. The core no
-longer owns an IPC compatibility modal or placeholder namespace.
+0.1.3 bridge installs this layout for existing users and pauses the core for that
+session. The shared dialog asks the user to reinstall only AdofaiIpc 0.3.0 and
+fully restart the game. New installations use the final layout immediately. The
+core no longer owns an IPC compatibility modal or placeholder namespace.
 
 ## Tech Stack
 

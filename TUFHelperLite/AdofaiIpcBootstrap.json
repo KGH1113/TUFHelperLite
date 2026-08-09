@@ -1,5 +1,5 @@
 {
   "AssemblyName": "TUFHelperLite.dll",
   "EntryMethod": "TUFHelperLite.Bootstrap.Loader.Load",
-  "MinimumAdofaiIpcVersion": "0.2.0"
+  "MinimumAdofaiIpcVersion": "0.3.0"
 }

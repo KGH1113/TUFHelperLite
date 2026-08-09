@@ -374,11 +374,14 @@ internal static class Program
     using FileStream stream = new(path, FileMode.Create, FileAccess.Write, FileShare.None);
     using ZipArchive archive = new(stream, ZipArchiveMode.Create);
     AddZipText(archive, "TUFHelperLite/TUFHelperLite.dll", "stable-bootstrap");
-    AddZipText(archive, "TUFHelperLite/DependencyBootstrap/versions/0.2.1/AdofaiIpc.Bootstrap.dll", "dependency-bootstrap");
+    AddZipText(archive, "TUFHelperLite/DependencyBootstrap/versions/0.3.0/AdofaiIpc.Bootstrap.dll", "dependency-bootstrap");
     AddZipText(archive, "TUFHelperLite/TUFHelperLite.Core.dll", coreContent);
     AddZipText(archive, "TUFHelperLite/Info.json", $"{{\"Version\":\"{version}\"}}");
     AddZipText(archive, "TUFHelperLite/AdofaiIpcBootstrap.json", "{}");
     AddZipText(archive, "TUFHelperLite/Assets/update.txt", version);
+    AddZipText(archive, "TUFHelperLite/Assets/AdofaiIpc/AdofaiIpc.DependencyShim.dll", "dependency-shim");
+    AddZipText(archive, "TUFHelperLite/Assets/AdofaiIpc/AdofaiIpc.Bootstrap.dll", "dependency-bootstrap-seed");
+    AddZipText(archive, "TUFHelperLite/Assets/AdofaiIpc/AdofaiIpc.Migration.dll", "migration");
     return path;
   }
 
