@@ -51,6 +51,8 @@ copy_mod_artifacts() {
   cp "$ADOFAIIPC_DEPENDENCY_SHIM_DLL" "$destination/Assets/AdofaiIpc/"
   cp "$ADOFAIIPC_BOOTSTRAP_DLL" "$destination/Assets/AdofaiIpc/"
   cp "$ADOFAIIPC_MIGRATION_DLL" "$destination/Assets/AdofaiIpc/"
+  cp "$TUFHELPER_LITE_PROJECT_ROOT/TUFHelperLite/AdofaiIpcBootstrap.json" \
+    "$destination/Assets/AdofaiIpc/"
 
   if [ -f "$TUFHELPER_LITE_BUILD_OUTPUT/TUFHelperLite.Core.pdb" ]; then
     cp "$TUFHELPER_LITE_BUILD_OUTPUT/TUFHelperLite.Core.pdb" "$destination/"

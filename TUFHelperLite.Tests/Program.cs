@@ -382,6 +382,8 @@ internal static class Program
     AddZipText(archive, "TUFHelperLite/Assets/AdofaiIpc/AdofaiIpc.DependencyShim.dll", "dependency-shim");
     AddZipText(archive, "TUFHelperLite/Assets/AdofaiIpc/AdofaiIpc.Bootstrap.dll", "dependency-bootstrap-seed");
     AddZipText(archive, "TUFHelperLite/Assets/AdofaiIpc/AdofaiIpc.Migration.dll", "migration");
+    AddZipText(archive, "TUFHelperLite/Assets/AdofaiIpc/AdofaiIpcBootstrap.json",
+      "{\"MinimumAdofaiIpcVersion\":\"0.3.0\",\"AssemblyName\":\"TUFHelperLite.dll\",\"EntryMethod\":\"TUFHelperLite.Bootstrap.Loader.Load\"}");
     return path;
   }
 

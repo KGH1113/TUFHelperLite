@@ -173,7 +173,8 @@ internal static class UpdatePackageStager
     {
       "Assets/AdofaiIpc/AdofaiIpc.DependencyShim.dll",
       "Assets/AdofaiIpc/AdofaiIpc.Bootstrap.dll",
-      "Assets/AdofaiIpc/AdofaiIpc.Migration.dll"
+      "Assets/AdofaiIpc/AdofaiIpc.Migration.dll",
+      "Assets/AdofaiIpc/AdofaiIpcBootstrap.json"
     };
     foreach (string path in migrationFiles)
       if (!files.Any(file => file.Path.Equals(path, StringComparison.OrdinalIgnoreCase)))
