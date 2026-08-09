@@ -3,6 +3,8 @@
 bin/
 obj/
 build/
+!scripts/tasks/build/
+!scripts/tasks/build/**
 
 # Library
 packages/

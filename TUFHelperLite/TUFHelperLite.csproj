@@ -69,7 +69,7 @@
       <Private>false</Private>
     </Reference>
     <Reference Include="AdofaiIpc">
-      <HintPath>$(AdofaiMods)/AdofaiIpc/AdofaiIpc.dll</HintPath>
+      <HintPath>$(AdofaiIpcDll)</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
