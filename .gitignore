@@ -1,5 +1,6 @@
 # Compile File
 *.dll
+!TUFHelperLite.UpdateTests/Fixtures/TUFHelperLite-0.1.2.dll
 bin/
 obj/
 build/

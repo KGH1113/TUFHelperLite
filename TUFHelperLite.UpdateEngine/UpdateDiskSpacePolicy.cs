@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace TUFHelperLite.Bootstrap;
+namespace TUFHelperLite.UpdateEngine;
 
 internal static class UpdateDiskSpacePolicy
 {

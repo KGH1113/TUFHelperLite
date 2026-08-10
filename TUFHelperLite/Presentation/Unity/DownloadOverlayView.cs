@@ -22,6 +22,7 @@ internal sealed class DownloadOverlayView : IDisposable
 
   private readonly AssetBundle _bundle;
   private readonly GameObject _root;
+  private bool _disposed;
   private readonly CanvasGroup _downloadCanvasGroup;
   private readonly RectTransform _card;
   private readonly TMP_Text _metadataText;
@@ -331,12 +332,17 @@ internal sealed class DownloadOverlayView : IDisposable
 
   public void Dispose()
   {
+    if (_disposed) return;
+    _disposed = true;
     if (_root != null)
     {
       UnityEngine.Object.Destroy(_root);
     }
 
-    _bundle?.Unload(false);
+    if (_bundle != null)
+    {
+      _bundle.Unload(false);
+    }
   }
 
   private T Find<T>(string path) where T : Component

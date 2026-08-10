@@ -18,7 +18,8 @@ copy_mod_artifacts() {
   require_file "$TUFHELPER_LITE_PROJECT_ROOT/TUFHelperLite/AdofaiIpcBootstrap.json"
   require_file "$TUFHELPER_LITE_PROJECT_ROOT/THIRD_PARTY_NOTICES.md"
   require_file "$TUFHELPER_LITE_BUILD_OUTPUT/TUFHelperLite.Core.dll"
-  require_file "$TUFHELPER_LITE_BOOTSTRAP_BUILD_OUTPUT/TUFHelperLite.Bootstrap.dll"
+  require_file "$TUFHELPER_LITE_LAUNCHER_BUILD_OUTPUT/TUFHelperLite.Launcher.dll"
+  require_file "$TUFHELPER_LITE_UPDATE_ENGINE_BUILD_OUTPUT/TUFHelperLite.UpdateEngine.dll"
   require_file "$ADOFAIIPC_BOOTSTRAP_DLL"
   require_file "$ADOFAIIPC_DEPENDENCY_SHIM_DLL"
   require_file "$ADOFAIIPC_MIGRATION_DLL"
@@ -32,16 +33,7 @@ copy_mod_artifacts() {
   cp "$TUFHELPER_LITE_PROJECT_ROOT/TUFHelperLite/Info.json" "$destination/"
   cp "$TUFHELPER_LITE_PROJECT_ROOT/TUFHelperLite/AdofaiIpcBootstrap.json" "$destination/"
   cp "$TUFHELPER_LITE_PROJECT_ROOT/THIRD_PARTY_NOTICES.md" "$destination/"
-  cp "$TUFHELPER_LITE_BOOTSTRAP_BUILD_OUTPUT/TUFHelperLite.Bootstrap.dll" \
-    "$destination/TUFHelperLite.dll"
   cp "$TUFHELPER_LITE_BUILD_OUTPUT/TUFHelperLite.Core.dll" "$destination/"
-  cp "$ADOFAIIPC_DEPENDENCY_SHIM_DLL" "$destination/"
-
-  mkdir -p "$destination/DependencyBootstrap/versions/$ADOFAIIPC_BOOTSTRAP_VERSION"
-  cp "$ADOFAIIPC_BOOTSTRAP_DLL" \
-    "$destination/DependencyBootstrap/versions/$ADOFAIIPC_BOOTSTRAP_VERSION/"
-  printf '{\n  "SchemaVersion": 1,\n  "Current": "%s",\n  "Previous": null,\n  "Trial": null\n}\n' \
-    "$ADOFAIIPC_BOOTSTRAP_VERSION" > "$destination/DependencyBootstrap/state.json"
 
   if [ -d "$TUFHELPER_LITE_PROJECT_ROOT/TUFHelperLite/Assets" ]; then
     cp -R "$TUFHELPER_LITE_PROJECT_ROOT/TUFHelperLite/Assets" "$destination/"
@@ -51,6 +43,10 @@ copy_mod_artifacts() {
   cp "$ADOFAIIPC_DEPENDENCY_SHIM_DLL" "$destination/Assets/AdofaiIpc/"
   cp "$ADOFAIIPC_BOOTSTRAP_DLL" "$destination/Assets/AdofaiIpc/"
   cp "$ADOFAIIPC_MIGRATION_DLL" "$destination/Assets/AdofaiIpc/"
+  cp "$TUFHELPER_LITE_LAUNCHER_BUILD_OUTPUT/TUFHelperLite.Launcher.dll" \
+    "$destination/Assets/AdofaiIpc/"
+  cp "$TUFHELPER_LITE_UPDATE_ENGINE_BUILD_OUTPUT/TUFHelperLite.UpdateEngine.dll" \
+    "$destination/Assets/AdofaiIpc/"
   cp "$TUFHELPER_LITE_PROJECT_ROOT/TUFHelperLite/AdofaiIpcBootstrap.json" \
     "$destination/Assets/AdofaiIpc/"
 

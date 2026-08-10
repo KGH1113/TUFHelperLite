@@ -88,20 +88,23 @@ The package command creates both `build/TUFHelperLite.zip` and
 `build/TUFHelperLite.zip.sha256`. Upload both files, without renaming them, to a
 stable GitHub release tagged `vX.Y.Z`; `X.Y.Z` must match `Info.json`.
 
-TUFHelperLite's fixed bootstrap checks the latest stable release before loading
-the core assembly. It allows up to 20 seconds for release metadata, checksum,
-and package downloads, then verifies, stages, and applies a newer core in the
-same game launch. Network or verification failures fall back to the installed
-version. The first release that introduces `TUFHelperLite.Core.dll` must be
-installed manually once so the fixed bootstrap is present.
+TUFHelperLite 0.1.4 uses a fixed launcher and versioned runtimes. The launcher
+checks the latest stable GitHub release before loading the core, verifies the
+ZIP and checksum, and can activate a newer runtime in the same game launch.
+Network or verification failures leave the current runtime untouched.
 
-The package also contains a fixed `AdofaiIpc.DependencyShim.dll` and a versioned
-dependency bootstrap. A verified TUFHelperLite update stages the bootstrap as a
-trial for the next game launch; core rollback discards the matching trial. The
-0.1.3 bridge installs this layout for existing users and pauses the core for that
-session. The shared dialog asks the user to reinstall only AdofaiIpc 0.3.0 and
-fully restart the game. New installations use the final layout immediately. The
-core no longer owns an IPC compatibility modal or placeholder namespace.
+The release ZIP intentionally keeps the flat layout accepted by the official
+0.1.2 updater. An existing 0.1.2 installation can therefore download 0.1.4
+automatically; the 0.1.4 migration bridge then prepares the fixed dependency
+shim and launcher and asks for one full game restart. If AdofaiIpc is older than
+0.3.0, the shared dialog also asks for a one-time AdofaiIpc reinstall before that
+restart. New installations seed the versioned runtime and load normally in the
+same launch.
+
+The published 0.1.3 updater cannot complete this transition. Users who manually
+installed 0.1.3 must manually reinstall TUFHelperLite 0.1.4 once. Releases after
+0.1.4 are handled by the fixed launcher without another manual reinstall. The
+core does not own a separate IPC compatibility modal or placeholder namespace.
 
 ## Tech Stack
 

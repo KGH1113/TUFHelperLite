@@ -12,7 +12,7 @@ source "$TASK_DIR/../../lib/artifacts.sh"
 assert_non_root_path "$TUFHELPER_LITE_INSTALL_PATH"
 mkdir -p "$TUFHELPER_LITE_INSTALL_PATH"
 
-for obsolete_dir in assembly_cache DependencyBootstrap; do
+for obsolete_dir in assembly_cache; do
   if [ -e "$TUFHELPER_LITE_INSTALL_PATH/$obsolete_dir" ]; then
     safe_remove_tree "$TUFHELPER_LITE_INSTALL_PATH/$obsolete_dir" "$TUFHELPER_LITE_INSTALL_PATH"
   fi
