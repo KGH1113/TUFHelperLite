@@ -148,7 +148,7 @@ public static class LevelJobService
     lock (Lock)
     {
       if (!Jobs.TryGetValue(jobId ?? "", out job)) return false;
-      job.Cancel();
+      if (!job.TryCancel()) return false;
       RecalculateQueuePositions();
     }
 

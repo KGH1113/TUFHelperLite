@@ -27,5 +27,12 @@ if [ -e "$TUFHELPER_LITE_INSTALL_PATH/Assets" ]; then
   safe_remove_tree "$TUFHELPER_LITE_INSTALL_PATH/Assets" "$TUFHELPER_LITE_INSTALL_PATH"
 fi
 
+# The launcher executes the payload from Runtime/versions, not from the flat
+# install root. A local reinstall must invalidate that generated runtime so the
+# launcher seeds it again from the freshly copied development artifacts.
+if [ -e "$TUFHELPER_LITE_INSTALL_PATH/Runtime" ]; then
+  safe_remove_tree "$TUFHELPER_LITE_INSTALL_PATH/Runtime" "$TUFHELPER_LITE_INSTALL_PATH"
+fi
+
 copy_mod_artifacts "$TUFHELPER_LITE_INSTALL_PATH"
 printf 'Installed to %s\n' "$TUFHELPER_LITE_INSTALL_PATH"

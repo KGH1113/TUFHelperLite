@@ -74,8 +74,8 @@ namespace TUFHelperLite.Editor
 
             CanvasGroup downloadCardGroup = card.gameObject.AddComponent<CanvasGroup>();
             downloadCardGroup.alpha = 1f;
-            downloadCardGroup.interactable = false;
-            downloadCardGroup.blocksRaycasts = false;
+            downloadCardGroup.interactable = true;
+            downloadCardGroup.blocksRaycasts = true;
 
             Outline outline = card.gameObject.AddComponent<Outline>();
             outline.effectColor = new Color(1f, 1f, 1f, 0.11f);
@@ -122,6 +122,27 @@ namespace TUFHelperLite.Editor
             CreateText("ProgressText", card.transform, font, "42%", 30f, FontStyles.Normal,
                 new Color32(218, 220, 226, 255), TextAlignmentOptions.Right,
                 new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(1060f, -243f), new Vector2(120f, 42f));
+
+            Image cancelBackground = CreateImage("CancelButton", card.transform, panelSprite, Color.white);
+            SetRect(cancelBackground.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(1132f, -34f), new Vector2(48f, 48f));
+            cancelBackground.type = Image.Type.Sliced;
+            cancelBackground.raycastTarget = true;
+
+            Button cancelButton = cancelBackground.gameObject.AddComponent<Button>();
+            ColorBlock cancelColors = cancelButton.colors;
+            cancelColors.normalColor = new Color(1f, 1f, 1f, 0.04f);
+            cancelColors.highlightedColor = new Color(1f, 1f, 1f, 0.12f);
+            cancelColors.pressedColor = new Color(1f, 1f, 1f, 0.18f);
+            cancelColors.selectedColor = new Color(1f, 1f, 1f, 0.09f);
+            cancelColors.disabledColor = new Color(1f, 1f, 1f, 0.02f);
+            cancelColors.colorMultiplier = 1f;
+            cancelColors.fadeDuration = 0.08f;
+            cancelButton.colors = cancelColors;
+            cancelButton.targetGraphic = cancelBackground;
+
+            CreateText("Icon", cancelButton.transform, font, "×", 36f, FontStyles.Normal,
+                new Color32(168, 172, 182, 255), TextAlignmentOptions.Center,
+                Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
 
             Image progressBackground = CreateImage("ProgressBackground", card.transform, panelSprite, new Color32(43, 45, 52, 210));
             SetRect(progressBackground.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(300f, 66f), new Vector2(880f, 18f));

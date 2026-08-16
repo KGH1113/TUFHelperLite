@@ -10,6 +10,8 @@ configuration="${1:-Debug}"
 DOTNET_ROOT="$DOTNET_ROOT" DOTNET_ROOT_ARM64="$DOTNET_ROOT_ARM64" \
   "$DOTNET_EXE" build "$TUFHELPER_LITE_PROJECT_ROOT/TUFHelperLite/TUFHelperLite.csproj" \
     --configuration "$configuration" \
+    -m:1 -nodeReuse:false \
+    -p:NuGetAudit=false \
     -p:OutputPath="$TUFHELPER_LITE_BUILD_OUTPUT/" \
     -p:AdofaiManaged="$ADOFAI_MANAGED" \
     -p:AdofaiMods="$ADOFAI_MODS_DIR" \

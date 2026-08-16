@@ -33,6 +33,7 @@ internal sealed class DownloadOverlayView : IDisposable
   private readonly Image _difficultyIcon;
   private readonly Image _progressFill;
   private readonly Image _statusDot;
+  private readonly Button _cancelButton;
   private readonly Sprite _fallbackIcon;
   private readonly Dictionary<int, string> _difficultyAssetNames = new();
   private readonly Dictionary<int, Sprite> _difficultyIcons = new();
@@ -60,6 +61,7 @@ internal sealed class DownloadOverlayView : IDisposable
   private bool _selectionTargetVisible;
   private bool _warningTargetVisible;
   private string _selectionKey;
+  private string _cancelJobId;
 
   private DownloadOverlayView(AssetBundle bundle, GameObject root)
   {
@@ -75,6 +77,7 @@ internal sealed class DownloadOverlayView : IDisposable
     _difficultyIcon = Find<Image>("DownloadCard/IconFrame/DifficultyIcon");
     _progressFill = Find<Image>("DownloadCard/ProgressBackground/ProgressFill");
     _statusDot = Find<Image>("DownloadCard/StatusDot");
+    _cancelButton = Find<Button>("DownloadCard/CancelButton");
     _restingCardPosition = _card.anchoredPosition;
     _restingCardScale = _card.localScale;
     _selectionLayer = Find<RectTransform>("SelectionLayer");
@@ -267,7 +270,7 @@ internal sealed class DownloadOverlayView : IDisposable
     }
   }
 
-  public void Bind(DownloadJobSnapshot job)
+  public void Bind(DownloadJobSnapshot job, Func<string, bool> onCancel)
   {
     _metadataText.text = MetaText(job);
     _titleText.text = FirstNonEmpty(job.Song, LevelNameFromPath(job.SelectedLevelPath), "Downloading level");
@@ -275,12 +278,33 @@ internal sealed class DownloadOverlayView : IDisposable
     _statusText.text = StatusText(job);
     _difficultyIcon.sprite = GetDifficultyIcon(job.DifficultyId);
     _statusDot.color = StatusColor(job.Status);
+    BindCancel(job, onCancel);
   }
 
   public void SetProgress(float progress, bool determinate)
   {
     _progressFill.fillAmount = Mathf.Clamp01(progress);
     _progressText.text = determinate ? $"{Mathf.Clamp01(progress) * 100f:0}%" : string.Empty;
+  }
+
+  private void BindCancel(DownloadJobSnapshot job, Func<string, bool> onCancel)
+  {
+    if (string.Equals(_cancelJobId, job.JobId, StringComparison.Ordinal)) return;
+
+    _cancelJobId = job.JobId;
+    _cancelButton.onClick.RemoveAllListeners();
+    _cancelButton.interactable = true;
+    _cancelButton.onClick.AddListener(() =>
+    {
+      if (!_cancelButton.interactable) return;
+
+      _cancelButton.interactable = false;
+      _statusText.text = "Cancelling…";
+      if (onCancel?.Invoke(job.JobId) == true) return;
+
+      _statusText.text = StatusText(job);
+      _cancelButton.interactable = true;
+    });
   }
 
   private void RebuildSelection(
@@ -334,6 +358,7 @@ internal sealed class DownloadOverlayView : IDisposable
   {
     if (_disposed) return;
     _disposed = true;
+    _cancelButton.onClick.RemoveAllListeners();
     if (_root != null)
     {
       UnityEngine.Object.Destroy(_root);

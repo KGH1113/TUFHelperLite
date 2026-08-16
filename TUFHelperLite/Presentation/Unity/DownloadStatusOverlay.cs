@@ -95,7 +95,7 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
           _displayedProgress = _job.Progress >= 0 ? Mathf.Clamp01((float)_job.Progress) : 0f;
         }
 
-        _view?.Bind(_job);
+        _view?.Bind(_job, LevelJobService.Cancel);
         _view?.SetVisible(true);
       }
     }

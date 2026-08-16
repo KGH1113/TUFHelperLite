@@ -140,6 +140,8 @@ public sealed class DownloadJob
   {
     lock (_lock)
     {
+      if (IsTerminalStatus(_status)) return;
+
       _status = "running";
       _stage = stage;
       _message = message;
@@ -160,6 +162,8 @@ public sealed class DownloadJob
   {
     lock (_lock)
     {
+      if (IsTerminalStatus(_status)) return;
+
       _status = "completed";
       _stage = opened ? "opened" : "downloaded";
       _message = opened ? "Level opened" : "Download completed";
@@ -179,6 +183,8 @@ public sealed class DownloadJob
   {
     lock (_lock)
     {
+      if (IsTerminalStatus(_status)) return;
+
       _status = "waiting_selection";
       _stage = "selecting";
       _message = "Select a level to open";
@@ -215,6 +221,8 @@ public sealed class DownloadJob
   {
     lock (_lock)
     {
+      if (IsTerminalStatus(_status)) return;
+
       _status = "failed";
       _stage = "failed";
       _message = "Download failed";
@@ -231,14 +239,24 @@ public sealed class DownloadJob
 
   public void Cancel()
   {
-    _cts.Cancel();
+    TryCancel();
+  }
+
+  public bool TryCancel()
+  {
     lock (_lock)
     {
+      if (IsTerminalStatus(_status)) return false;
+
       _status = "cancelled";
       _stage = "cancelled";
       _message = "Cancelled";
+      _waitingForSelection = false;
       Touch();
     }
+
+    _cts.Cancel();
+    return true;
   }
 
   public DownloadJobSnapshot Snapshot()

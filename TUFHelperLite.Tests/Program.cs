@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using TUFHelperLite.Domain.Errors;
 using TUFHelperLite.Domain.Jobs;
+using TUFHelperLite.Domain.Levels;
 using TUFHelperLite.Infrastructure.Downloads;
 using TUFHelperLite.Integration;
 
@@ -43,6 +44,7 @@ internal static class Program
       Check("file directly under root", null, LevelContextResolver.ResolveTufLevelId(
         CreateLevel(root, "", "chart.adofai")));
       RunDiskSpacePolicyTests();
+      RunCancellationTests();
     }
     finally
     {
@@ -93,6 +95,40 @@ internal static class Program
     CheckString("disk failure error code", "insufficient_disk_space", snapshot.ErrorCode);
     CheckLong("disk failure available bytes", 512, snapshot.ErrorAvailableBytes);
     CheckLong("disk failure required bytes", 2048, snapshot.ErrorRequiredBytes);
+  }
+
+  private static void RunCancellationTests()
+  {
+    DownloadJob queued = new("tuf", "12345", "https://example.com/level.zip", "tuf-12345", false);
+    CheckTrue("queued job cancellation succeeds", queued.TryCancel());
+    CheckTrue("queued job cancellation requests token", queued.Token.IsCancellationRequested);
+    CheckFalse("cancelled job cannot be cancelled twice", queued.TryCancel());
+
+    DownloadJobSnapshot cancelled = queued.Snapshot();
+    CheckString("cancelled job status", "cancelled", cancelled.Status);
+    CheckString("cancelled job stage", "cancelled", cancelled.Stage);
+    CheckTrue("cancelled job is terminal", cancelled.Done);
+
+    LevelDownloadResult result = new()
+    {
+      SourceUrl = "https://example.com/level.zip",
+      DirectUrl = "https://cdn.example.com/level.zip",
+      Directory = "/tmp/tuf-12345",
+      SelectedLevelPath = "/tmp/tuf-12345/chart.adofai",
+      LevelPaths = new List<string> { "/tmp/tuf-12345/chart.adofai" }
+    };
+
+    queued.Report("downloading", "Downloading level archive", 0.5, 50, 100);
+    queued.Complete(result, false);
+    queued.WaitForSelection(result);
+    queued.Fail(new InvalidOperationException("late failure"));
+    CheckString("late callbacks preserve cancellation", "cancelled", queued.Snapshot().Status);
+
+    DownloadJob completed = new("tuf", "54321", "https://example.com/complete.zip", "tuf-54321", false);
+    completed.Complete(result, false);
+    CheckFalse("completed job cannot be cancelled", completed.TryCancel());
+    CheckFalse("completed job token remains active", completed.Token.IsCancellationRequested);
+    CheckString("completed status is preserved", "completed", completed.Snapshot().Status);
   }
 
   private static void Check(string name, int? expected, int? actual)
