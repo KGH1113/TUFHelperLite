@@ -7,8 +7,8 @@
     <RootNamespace>TUFHelperLite.Launcher</RootNamespace>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <Version>0.1.4</Version>
-    <FileVersion>0.1.4.0</FileVersion>
+    <Version>0.1.5</Version>
+    <FileVersion>0.1.5.0</FileVersion>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
   </PropertyGroup>
 

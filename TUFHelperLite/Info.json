@@ -2,8 +2,8 @@
   "Id": "TUFHelperLite",
   "DisplayName": "TUFHelperLite",
   "Author": "impl",
-  "Version": "0.1.4",
-  "AssemblyName": "Assets/AdofaiIpc/AdofaiIpc.DependencyShim.dll",
-  "EntryMethod": "AdofaiIpc.DependencyShim.DependencyShim.Load",
+  "Version": "0.1.5",
+  "AssemblyName": "Assets/AdofaiIpc/TUFHelperLite.Launcher.dll",
+  "EntryMethod": "TUFHelperLite.Launcher.DependencyEntryPoint.Load",
   "LoadAfter": ["AdofaiIpc"]
 }
