@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using TUFHelperLite.Infrastructure.Settings;
 
 namespace TUFHelperLite.Infrastructure.Downloads;
 
@@ -11,13 +12,7 @@ internal static class DownloadCachePaths
 
   public static string GetDownloadRoot()
   {
-    string modPath = Main.Instance?.ModEntry?.Path;
-    if (string.IsNullOrWhiteSpace(modPath))
-    {
-      modPath = AppDomain.CurrentDomain.BaseDirectory;
-    }
-
-    return Path.Combine(modPath, "Downloads");
+    return DownloadStorageSettingsStore.GetDownloadRoot();
   }
 
   public static string BuildTufCacheKey(string levelId)

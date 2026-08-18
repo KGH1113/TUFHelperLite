@@ -52,8 +52,16 @@ public static class IpcRegistration
     ipc.Register("level.status", Status);
     ipc.Register("level.jobs", Jobs);
     ipc.Register("level.downloaded-ids", DownloadedIds);
+    ipc.Register("level.downloaded-page", DownloadedPage);
+    ipc.Register("level.downloaded-summary", DownloadedSummary);
     ipc.Register("level.cancel", Cancel);
     ipc.Register("level.select", Select);
+    ipc.Register("storage.get", StorageGet);
+    ipc.Register("storage.folder-pick.start", StorageFolderPickStart);
+    ipc.Register("storage.folder-pick.status", StorageFolderPickStatus);
+    ipc.Register("storage.migration.start", StorageMigrationStart);
+    ipc.Register("storage.migration.status", StorageMigrationStatus);
+    ipc.Register("storage.migration.retry", StorageMigrationRetry);
   }
 
   private static global::AdofaiIpc.AdofaiIpcNamespace RegisterNamespace()
@@ -80,7 +88,8 @@ public static class IpcRegistration
     {
       Ok = true,
       Mod = "TUFHelperLite",
-      Version = Main.Instance.Version.ToString()
+      Version = Main.Instance.Version.ToString(),
+      Capabilities = new[] { "download-storage-migration-v1", "downloaded-level-library-v1" }
     };
   }
 
@@ -134,6 +143,17 @@ public static class IpcRegistration
     };
   }
 
+  private static object DownloadedPage(IpcRequest request)
+  {
+    DownloadedLevelPageRequest body = ReadParams<DownloadedLevelPageRequest>(request);
+    return DownloadLibraryService.GetPage(body?.Cursor, body?.Direction, body?.Limit ?? 0);
+  }
+
+  private static object DownloadedSummary(IpcRequest request)
+  {
+    return DownloadLibraryService.GetSummary();
+  }
+
   private static object Cancel(IpcRequest request)
   {
     JobStatusRequest body = ReadParams<JobStatusRequest>(request);
@@ -159,6 +179,38 @@ public static class IpcRegistration
       LevelPath = body?.LevelPath,
       Opened = opened
     };
+  }
+
+  private static object StorageGet(IpcRequest request)
+  {
+    return DownloadStorageMigrationService.GetStatus();
+  }
+
+  private static object StorageFolderPickStart(IpcRequest request)
+  {
+    return DownloadFolderPickerCoordinator.Start();
+  }
+
+  private static object StorageFolderPickStatus(IpcRequest request)
+  {
+    FolderPickerStatusRequest body = ReadParams<FolderPickerStatusRequest>(request);
+    return DownloadFolderPickerCoordinator.GetStatus(body?.OperationId);
+  }
+
+  private static object StorageMigrationStart(IpcRequest request)
+  {
+    StorageMigrationStartRequest body = ReadParams<StorageMigrationStartRequest>(request);
+    return DownloadStorageMigrationService.Start(body?.SelectionToken, body?.UseDefault == true);
+  }
+
+  private static object StorageMigrationStatus(IpcRequest request)
+  {
+    return DownloadStorageMigrationService.GetStatus();
+  }
+
+  private static object StorageMigrationRetry(IpcRequest request)
+  {
+    return DownloadStorageMigrationService.Retry();
   }
 
   private static T ReadParams<T>(IpcRequest request) where T : class

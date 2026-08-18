@@ -38,6 +38,7 @@ public static class LevelJobService
 
   public static DownloadJobSnapshot StartOpenFromId(string id, bool openAfterDownload)
   {
+    EnsureStorageAvailable();
     string normalizedId = DownloadCachePaths.NormalizeLevelId(id);
     string cacheKey = DownloadCachePaths.BuildTufCacheKey(normalizedId);
     DownloadJob existing = FindActiveByCacheKey(cacheKey);
@@ -54,6 +55,7 @@ public static class LevelJobService
       job.SetDifficultyId(level.DiffId);
 
       LevelDownloadResult result = LevelArchiveDownloader.Download(level.DownloadLink, job.CacheKey, job.Token, job.Report);
+      DownloadLibraryService.RecordDownload(result, level, normalizedId);
       Complete(job, result, shouldOpen);
     });
 
@@ -62,6 +64,7 @@ public static class LevelJobService
 
   public static DownloadJobSnapshot StartOpenFromUrl(string url, bool openAfterDownload)
   {
+    EnsureStorageAvailable();
     string cacheKey = BuildUrlCacheKey(url);
     DownloadJob existing = FindActiveByCacheKey(cacheKey);
     if (existing != null) return existing.Snapshot();
@@ -79,6 +82,7 @@ public static class LevelJobService
 
   public static DownloadJobSnapshot StartDownload(string url, string levelId)
   {
+    EnsureStorageAvailable();
     string cacheKey = string.IsNullOrWhiteSpace(levelId)
       ? BuildUrlCacheKey(url)
       : DownloadCachePaths.BuildTufCacheKey(levelId);
@@ -88,7 +92,23 @@ public static class LevelJobService
     DownloadJob job = Add("level.download", levelId, url, cacheKey, false);
     Enqueue(job, () =>
     {
-        LevelDownloadResult result = LevelArchiveDownloader.Download(url, job.CacheKey, job.Token, job.Report);
+      TufLevelInfo level = null;
+      if (DownloadCachePaths.TryParseTufCacheKey(job.CacheKey, out int parsedId))
+      {
+        try
+        {
+          level = TuforumsClient.GetLevelMetadataById(parsedId.ToString());
+          job.SetLevelInfo(level.Song, level.Artist, FirstNonEmpty(level.Creator, level.Charter, level.Team));
+          job.SetDifficultyId(level.DiffId);
+        }
+        catch (Exception exception)
+        {
+          Main.Instance?.Warning($"Failed to fetch metadata for TUF level #{parsedId}: {exception.Message}");
+        }
+      }
+
+      LevelDownloadResult result = LevelArchiveDownloader.Download(url, job.CacheKey, job.Token, job.Report);
+      DownloadLibraryService.RecordDownload(result, level, levelId);
       Complete(job, result, false);
     });
 
@@ -159,6 +179,7 @@ public static class LevelJobService
 
   public static bool SelectLevel(string jobId, string levelPath)
   {
+    EnsureStorageAvailable();
     DownloadJob job;
 
     lock (Lock)
@@ -192,6 +213,17 @@ public static class LevelJobService
 
       return job;
     }
+  }
+
+  public static bool HasActiveJobs()
+  {
+    lock (Lock) return Jobs.Values.Any(job => !job.IsDone);
+  }
+
+  private static void EnsureStorageAvailable()
+  {
+    if (DownloadStorageMigrationService.IsMigrationActive)
+      throw new InvalidOperationException("storage_migration_in_progress");
   }
 
   private static void Enqueue(DownloadJob job, Action action)

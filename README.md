@@ -35,6 +35,11 @@
 TUFHelperLite is an ADOFAI mod that exposes a local IPC bridge for
 opening TUF forum levels from browser tooling.
 
+The companion web client can also move the complete download library to a
+user-selected empty folder. TUFHelperLite copies and verifies every file before
+switching to the new location, resumes interrupted migrations on the next game
+launch, and removes the previous folder only after the new copy is active.
+
 The browser side will add a button to pages like:
 
 ```text
@@ -106,12 +111,53 @@ installed 0.1.3 must manually reinstall TUFHelperLite 0.1.4 once. Releases after
 0.1.4 are handled by the fixed launcher without another manual reinstall. The
 core does not own a separate IPC compatibility modal or placeholder namespace.
 
+## Download Storage
+
+Downloads use `Mods/TUFHelperLite/Downloads` until the user selects another
+empty folder from the download manager on the TUF website. Folder selection is
+performed by the local mod; the browser receives a one-time selection token and
+cannot submit an arbitrary filesystem path.
+
+Storage migration runs in the background and temporarily blocks new download
+jobs. Keep ADOFAI open and do not edit either directory until it finishes. The
+source remains active during copy and verification. After a verified cutover,
+cleanup failures leave the new directory active and are retried on the next
+launch.
+
+The additive IPC methods are:
+
+- `storage.get`
+- `storage.folder-pick.start`
+- `storage.folder-pick.status`
+- `storage.migration.start`
+- `storage.migration.status`
+- `storage.migration.retry`
+
+## Download Library
+
+The download manager reads real `tuf-{id}` folders through cursor-based IPC.
+Pages are ordered by download time and contain at most 50 entries; the default
+page size is 20. Existing downloads are enriched lazily and store a small
+`.tufhelperlite-level.json` manifest inside their level directory. Library count
+and payload size are kept separately in `DownloadLibrarySummary.json`, so no
+full level catalog needs to be loaded into memory.
+
+The additive IPC methods are:
+
+- `level.downloaded-page`
+- `level.downloaded-summary`
+
+Clients should check for the `downloaded-level-library-v1` health capability.
+Opaque cursors are tied to the current library revision and must be discarded
+when the server reports `download_library_cursor_stale`.
+
 ## Tech Stack
 
 - **C# / .NET SDK**: mod implementation and build tooling.
 - **netstandard2.1**: target framework for Unity compatibility.
 - **UnityModManager**: ADOFAI mod loading.
 - **AdofaiIpc**: local browser-to-mod IPC.
+- **UnityFileDialog**: native folder selection on Windows and Linux; macOS uses its native AppleScript picker.
 - **Newtonsoft.Json**: IPC payload serialization.
 - **Bash / .env**: local build and install configuration.
 

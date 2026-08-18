@@ -5,6 +5,18 @@ public sealed class HealthResponse
   public bool Ok;
   public string Mod;
   public string Version;
+  public string[] Capabilities;
+}
+
+public sealed class FolderPickerStatusRequest
+{
+  public string OperationId;
+}
+
+public sealed class StorageMigrationStartRequest
+{
+  public string SelectionToken;
+  public bool UseDefault;
 }
 
 public sealed class OpenLevelByIdRequest
@@ -55,6 +67,13 @@ public sealed class JobListResponse
 public sealed class DownloadedLevelIdsResponse
 {
   public string[] LevelIds;
+}
+
+public sealed class DownloadedLevelPageRequest
+{
+  public string Cursor;
+  public string Direction;
+  public int Limit;
 }
 
 public sealed class JobCancelResponse
