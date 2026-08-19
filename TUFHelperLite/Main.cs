@@ -1,5 +1,8 @@
 using System;
 using TUFHelperLite.Features;
+using TUFHelperLite.App;
+using TUFHelperLite.Infrastructure.Settings;
+using TUFHelperLite.Infrastructure.Downloads;
 using TUFHelperLite.Presentation.Unity;
 using UnityModManagerNet;
 
@@ -28,6 +31,10 @@ public sealed class Main
         return true;
 
       Instance = new Main(modEntry);
+      DownloadStorageSettingsStore.Initialize(modEntry.Path);
+      DownloadLibraryService.Initialize(modEntry.Path);
+      DownloadStorageMigrationService.Initialize(modEntry.Path);
+      LevelUpdateService.Initialize(modEntry.Path);
       modEntry.OnToggle = OnToggle;
       modEntry.OnUnload = OnUnload;
       Instance.Enable();
@@ -116,6 +123,7 @@ public sealed class Main
 
   private void Shutdown()
   {
+    DownloadFolderPickerCoordinator.Shutdown();
     Disable();
   }
 }

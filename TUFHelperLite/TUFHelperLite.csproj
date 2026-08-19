@@ -72,5 +72,9 @@
       <HintPath>$(AdofaiIpcDll)</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityFileDialog">
+      <HintPath>$(AdofaiManaged)/UnityFileDialog.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 </Project>

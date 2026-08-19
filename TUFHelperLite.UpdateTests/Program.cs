@@ -19,6 +19,7 @@ internal static class Program
 {
   private const string LegacyFixtureSha256 =
     "ffbb08d28d5189528f4d64906d90e22e9f22eb23a433409e158f983c6b31cc55";
+  private const string CurrentVersion = "0.1.5";
   private static readonly List<string> Failures = new();
 
   private static int Main()
@@ -30,8 +31,9 @@ internal static class Program
     {
       string package = Environment.GetEnvironmentVariable("TUFHELPER_LITE_PACKAGE_UNDER_TEST");
       if (string.IsNullOrWhiteSpace(package))
-        package = CreatePackage(root, "0.1.4");
+        package = CreatePackage(root, CurrentVersion);
 
+      VerifyDependencyBootstrapRepair(root);
       VerifyLegacyBinary(root, package);
       VerifyVersionContract();
       VerifyReleaseSelection();
@@ -59,6 +61,24 @@ internal static class Program
     return 1;
   }
 
+  private static void VerifyDependencyBootstrapRepair(string root)
+  {
+    string modRoot = Path.Combine(root, "DependencyRepair");
+    string controls = Path.Combine(modRoot, "Assets", "AdofaiIpc");
+    Directory.CreateDirectory(controls);
+    File.Copy(Required("ADOFAIIPC_BOOTSTRAP_DLL"),
+      Path.Combine(controls, "AdofaiIpc.Bootstrap.dll"));
+    string stateRoot = Path.Combine(modRoot, "DependencyBootstrap");
+    Directory.CreateDirectory(stateRoot);
+    File.WriteAllText(Path.Combine(stateRoot, "state.json"),
+      "{\"SchemaVersion\":1,\"Current\":\"0.3.0\",\"Previous\":null,\"Trial\":null}");
+
+    True("missing dependency bootstrap candidate repaired",
+      DependencyEntryPoint.RepairMissingCandidate(modRoot, controls));
+    True("dependency bootstrap candidate restored",
+      File.Exists(Path.Combine(stateRoot, "versions", "0.3.0", "AdofaiIpc.Bootstrap.dll")));
+  }
+
   private static void VerifyLegacyBinary(string root, string package)
   {
     string fixture = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Fixtures", "TUFHelperLite-0.1.2.dll");
@@ -70,7 +90,7 @@ internal static class Program
     MethodInfo stage = stager.GetMethod("Stage", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
     try
     {
-      stage.Invoke(null, new object[] { package, modRoot, "0.1.4", Sha256(package) });
+      stage.Invoke(null, new object[] { package, modRoot, CurrentVersion, Sha256(package) });
       True("official 0.1.2 accepts final transport ZIP",
         File.Exists(Path.Combine(modRoot, "Data", "updates", "pending", "pending.json")));
 
@@ -85,7 +105,7 @@ internal static class Program
         "ApplyPending", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
       object applied = apply.Invoke(installer, new object[] { "0.1.2" });
       True("official 0.1.2 applies final transport ZIP", applied != null);
-      True("official 0.1.2 applies 0.1.4 core",
+      True("official 0.1.2 applies 0.1.5 core",
         File.Exists(Path.Combine(modRoot, "TUFHelperLite.Core.dll")));
       True("official 0.1.2 applies migration payload",
         File.Exists(Path.Combine(modRoot, "Assets", "AdofaiIpc", "AdofaiIpc.Migration.dll")));
@@ -127,16 +147,16 @@ internal static class Program
 
   private static void VerifyReleaseSelection()
   {
-    string json = ReleaseJson("0.1.5", 1234, false);
-    UpdateManager.UpdateReleaseSelection selection = UpdateManager.SelectRelease(json, "0.1.4");
-    Equal("stable release selected", "0.1.5", selection?.Version);
-    True("equal release skipped", UpdateManager.SelectRelease(json, "0.1.5") == null);
-    True("prerelease skipped", UpdateManager.SelectRelease(ReleaseJson("0.1.5", 1234, true), "0.1.4") == null);
+    string json = ReleaseJson("0.1.6", 1234, false);
+    UpdateManager.UpdateReleaseSelection selection = UpdateManager.SelectRelease(json, CurrentVersion);
+    Equal("stable release selected", "0.1.6", selection?.Version);
+    True("equal release skipped", UpdateManager.SelectRelease(json, "0.1.6") == null);
+    True("prerelease skipped", UpdateManager.SelectRelease(ReleaseJson("0.1.6", 1234, true), CurrentVersion) == null);
   }
 
   private static void VerifyVersionContract()
   {
-    const string version = "0.1.4";
+    const string version = CurrentVersion;
     Dictionary<string, object> info = JsonConvert.DeserializeObject<Dictionary<string, object>>(
       File.ReadAllText(Required("TUFHELPER_LITE_INFO_JSON")));
     Equal("Info.json product version", version, info["Version"]?.ToString());
@@ -160,8 +180,8 @@ internal static class Program
     string userData = Path.Combine(modRoot, "Data", "user-data.json");
     Directory.CreateDirectory(Path.GetDirectoryName(userData));
     File.WriteAllText(userData, "preserve-me");
-    string runtime = RuntimePackageInstaller.Install(package, modRoot, "0.1.4", Sha256(package));
-    RuntimePackageInstaller.ValidateCandidate(runtime, "0.1.4");
+    string runtime = RuntimePackageInstaller.Install(package, modRoot, CurrentVersion, Sha256(package));
+    RuntimePackageInstaller.ValidateCandidate(runtime, CurrentVersion);
     True("runtime core mapped", File.Exists(Path.Combine(runtime, "TUFHelperLite.Core.dll")));
     True("runtime engine mapped", File.Exists(Path.Combine(runtime, "TUFHelperLite.UpdateEngine.dll")));
     True("runtime bootstrap mapped", File.Exists(Path.Combine(runtime, "AdofaiIpc.Bootstrap.dll")));

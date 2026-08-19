@@ -10,6 +10,18 @@ public static class TuforumsClient
   private const string LevelByIdUrl = "https://api.tuforums.com/v2/database/levels/byId/{0}";
   public static TufLevelInfo GetLevelById(string id)
   {
+    TufLevelInfo level = GetLevelMetadataById(id);
+
+    if (string.IsNullOrWhiteSpace(level.DownloadLink))
+    {
+      throw new InvalidOperationException($"TUF level #{level.Id} does not have a download link.");
+    }
+
+    return level;
+  }
+
+  public static TufLevelInfo GetLevelMetadataById(string id)
+  {
     if (string.IsNullOrWhiteSpace(id))
     {
       throw new ArgumentException("Level id is required.", nameof(id));
@@ -23,11 +35,6 @@ public static class TuforumsClient
     if (level == null)
     {
       throw new InvalidOperationException("TUF API returned an empty level response.");
-    }
-
-    if (string.IsNullOrWhiteSpace(level.DownloadLink))
-    {
-      throw new InvalidOperationException($"TUF level #{level.Id} does not have a download link.");
     }
 
     return level;

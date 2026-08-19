@@ -27,4 +27,13 @@ public sealed class TufLevelInfo
 
   [JsonProperty("dlLink")]
   public string DownloadLink { get; set; }
+
+  [JsonProperty("fileId")]
+  public string FileId { get; set; }
+
+  [JsonProperty("updatedAt")]
+  public string UpdatedAt { get; set; }
+
+  [JsonProperty("isDeleted")]
+  public bool IsDeleted { get; set; }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using TUFHelperLite.Domain.Errors;
+using TUFHelperLite.Domain.Downloads;
 using TUFHelperLite.Domain.Levels;
 
 namespace TUFHelperLite.Domain.Jobs;
@@ -22,6 +23,11 @@ public sealed class DownloadJob
   private string _artist;
   private string _creator;
   private int _difficultyId = -1;
+  private long _sizeBytes;
+  private string _updateState;
+  private string _installedFileId;
+  private string _availableFileId;
+  private string _availableUpdatedAtUtc;
   private string _directUrl;
   private string _directory;
   private string _selectedLevelPath;
@@ -179,6 +185,33 @@ public sealed class DownloadJob
     }
   }
 
+  public void CompleteUpdate(DownloadedLevelItem item, string updateState, string installedFileId, string availableFileId, string availableUpdatedAtUtc)
+  {
+    lock (_lock)
+    {
+      if (IsTerminalStatus(_status)) return;
+
+      _status = "completed";
+      _stage = updateState == "update_available" ? "update_available" : "up_to_date";
+      _message = updateState == "update_available" ? "Update available" : "Up to date";
+      _progress = 1;
+      _updateState = updateState;
+      _installedFileId = installedFileId;
+      _availableFileId = availableFileId;
+      _availableUpdatedAtUtc = availableUpdatedAtUtc;
+      if (item != null)
+      {
+        LevelId = item.Id.ToString();
+        _song = item.LevelName;
+        _artist = item.Artist;
+        _creator = item.Creator;
+        _difficultyId = item.DiffId;
+        _sizeBytes = item.SizeBytes;
+      }
+      Touch();
+    }
+  }
+
   public void WaitForSelection(LevelDownloadResult result)
   {
     lock (_lock)
@@ -233,6 +266,11 @@ public sealed class DownloadJob
         _errorAvailableBytes = diskSpace.AvailableBytes;
         _errorRequiredBytes = diskSpace.RequiredBytes;
       }
+      else if (exception is LevelUpdateException updateException)
+      {
+        _errorCode = updateException.Code;
+        _message = "Level update failed";
+      }
       Touch();
     }
   }
@@ -280,6 +318,11 @@ public sealed class DownloadJob
         Artist = _artist,
         Creator = _creator,
         DifficultyId = _difficultyId,
+        SizeBytes = _sizeBytes,
+        UpdateState = _updateState,
+        InstalledFileId = _installedFileId,
+        AvailableFileId = _availableFileId,
+        AvailableUpdatedAtUtc = _availableUpdatedAtUtc,
         SourceUrl = SourceUrl,
         DirectUrl = _directUrl,
         Directory = _directory,

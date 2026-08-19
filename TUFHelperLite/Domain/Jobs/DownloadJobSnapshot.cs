@@ -17,6 +17,11 @@ public sealed class DownloadJobSnapshot
   public string Artist { get; set; }
   public string Creator { get; set; }
   public int DifficultyId { get; set; }
+  public long SizeBytes { get; set; }
+  public string UpdateState { get; set; }
+  public string InstalledFileId { get; set; }
+  public string AvailableFileId { get; set; }
+  public string AvailableUpdatedAtUtc { get; set; }
   public string SourceUrl { get; set; }
   public string DirectUrl { get; set; }
   public string Directory { get; set; }
