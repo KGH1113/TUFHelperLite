@@ -45,6 +45,11 @@ public sealed class JobStatusRequest
   public string JobId;
 }
 
+public sealed class LevelUpdateRequest
+{
+  public string Id;
+}
+
 public sealed class SelectLevelRequest
 {
   public string JobId;

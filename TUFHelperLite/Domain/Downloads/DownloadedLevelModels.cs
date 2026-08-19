@@ -11,6 +11,21 @@ public sealed class DownloadedLevelItem
   public long DownloadedAtUnixMs { get; set; }
   public string DownloadedAtUtc { get; set; }
   public string MetadataState { get; set; }
+  public string UpdateState { get; set; }
+}
+
+public sealed class DownloadedLevelUpdateDescriptor
+{
+  public int Id { get; set; }
+  public string Directory { get; set; }
+  public long DownloadedAtUnixMs { get; set; }
+  public long SizeBytes { get; set; }
+  public string DownloadedFileId { get; set; }
+  public string InstalledPayloadHash { get; set; }
+  public string AvailableFileId { get; set; }
+  public string AvailablePayloadHash { get; set; }
+  public string AvailableUpdatedAtUtc { get; set; }
+  public string LastUpdateCheckedAtUtc { get; set; }
 }
 
 public sealed class DownloadedLevelPage

@@ -54,6 +54,8 @@ public static class IpcRegistration
     ipc.Register("level.downloaded-ids", DownloadedIds);
     ipc.Register("level.downloaded-page", DownloadedPage);
     ipc.Register("level.downloaded-summary", DownloadedSummary);
+    ipc.Register("level.update.check", UpdateCheck);
+    ipc.Register("level.update.start", UpdateStart);
     ipc.Register("level.cancel", Cancel);
     ipc.Register("level.select", Select);
     ipc.Register("storage.get", StorageGet);
@@ -89,7 +91,7 @@ public static class IpcRegistration
       Ok = true,
       Mod = "TUFHelperLite",
       Version = Main.Instance.Version.ToString(),
-      Capabilities = new[] { "download-storage-migration-v1", "downloaded-level-library-v1" }
+      Capabilities = new[] { "download-storage-migration-v1", "downloaded-level-library-v1", "downloaded-level-update-v1" }
     };
   }
 
@@ -152,6 +154,18 @@ public static class IpcRegistration
   private static object DownloadedSummary(IpcRequest request)
   {
     return DownloadLibraryService.GetSummary();
+  }
+
+  private static object UpdateCheck(IpcRequest request)
+  {
+    LevelUpdateRequest body = ReadParams<LevelUpdateRequest>(request);
+    return LevelJobService.StartUpdateCheck(body?.Id);
+  }
+
+  private static object UpdateStart(IpcRequest request)
+  {
+    LevelUpdateRequest body = ReadParams<LevelUpdateRequest>(request);
+    return LevelJobService.StartUpdate(body?.Id);
   }
 
   private static object Cancel(IpcRequest request)

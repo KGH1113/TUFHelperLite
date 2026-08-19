@@ -92,6 +92,62 @@ public static class LevelArchiveDownloader
     }
   }
 
+  public static LevelDownloadResult DownloadToDirectory(
+    string url,
+    string extractPath,
+    CancellationToken cancellationToken,
+    Action<LevelDownloadProgress> onProgress = null)
+  {
+    if (string.IsNullOrWhiteSpace(url))
+      throw new ArgumentException("Download URL is required.", nameof(url));
+    if (string.IsNullOrWhiteSpace(extractPath))
+      throw new ArgumentException("Staging directory is required.", nameof(extractPath));
+
+    string parent = Path.GetDirectoryName(extractPath);
+    if (string.IsNullOrWhiteSpace(parent))
+      throw new ArgumentException("Staging directory must have a parent.", nameof(extractPath));
+
+    Directory.CreateDirectory(parent);
+    string zipPath = extractPath + ".zip";
+    using CookieWebClient client = new();
+    onProgress?.Invoke(new LevelDownloadProgress
+    {
+      Stage = "resolving",
+      Progress = -1,
+      Message = "Resolving download URL"
+    });
+    string directUrl = DownloadUrlResolver.Resolve(url, client);
+
+    TryDeleteDirectory(extractPath);
+    TryDeleteFile(zipPath);
+    try
+    {
+      DownloadArchive(client, directUrl, zipPath, cancellationToken, onProgress);
+      cancellationToken.ThrowIfCancellationRequested();
+      onProgress?.Invoke(new LevelDownloadProgress
+      {
+        Stage = "extracting",
+        Progress = -1,
+        Message = "Extracting level archive"
+      });
+      ZipExtractor.Extract(zipPath, extractPath, cancellationToken);
+      DirectoryFlattener.MoveLastDirectoryFilesToRoot(extractPath, extractPath);
+      LevelDownloadResult result = CreateResult(url, directUrl, extractPath, false);
+      if (result.LevelPaths.Count == 0)
+        throw new FileNotFoundException("No .adofai file was found in the downloaded archive.", extractPath);
+      return result;
+    }
+    catch
+    {
+      TryDeleteDirectory(extractPath);
+      throw;
+    }
+    finally
+    {
+      TryDeleteFile(zipPath);
+    }
+  }
+
   public static string[] GetDownloadedLevelIds()
   {
     string downloadRoot = DownloadCachePaths.GetDownloadRoot();

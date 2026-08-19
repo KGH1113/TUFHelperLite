@@ -134,6 +134,11 @@ public static class DownloadStorageMigrationService
     _levelInUseProbe = probe ?? IsDownloadedLevelInUse;
   }
 
+  public static bool IsDirectoryInUse(string directory)
+  {
+    return !string.IsNullOrWhiteSpace(directory) && _levelInUseProbe(Normalize(directory));
+  }
+
   public static string ValidateSelectedTarget(string directory, bool allowMissing = false)
   {
     if (string.IsNullOrWhiteSpace(directory))

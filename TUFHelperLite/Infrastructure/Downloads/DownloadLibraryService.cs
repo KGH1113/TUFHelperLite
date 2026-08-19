@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -139,7 +140,13 @@ public static class DownloadLibraryService
         ? new DateTimeOffset(Directory.GetLastWriteTimeUtc(result.Directory)).ToUnixTimeMilliseconds()
         : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     long sizeBytes = CalculatePayloadSize(result.Directory);
-    DownloadedLevelManifest manifest = BuildManifest(parsedId, downloadedAt, sizeBytes, level, result.Directory);
+    DownloadedLevelManifest manifest = BuildManifest(parsedId, downloadedAt, sizeBytes, level, result.Directory, existing);
+    if (!result.FromCache)
+    {
+      manifest.DownloadedFileId = level?.FileId;
+      manifest.InstalledPayloadHash = CalculatePayloadHash(result.Directory);
+      ClearAvailableUpdate(manifest);
+    }
     WriteAtomic(manifestPath, manifest);
 
     if (result.FromCache) return;
@@ -161,6 +168,133 @@ public static class DownloadLibraryService
         SaveSummaryLocked();
       }
     }
+  }
+
+  public static DownloadedLevelUpdateDescriptor GetUpdateDescriptor(int id)
+  {
+    EnsureStorageAvailable();
+    EnsureInitialized();
+    string directory = Path.Combine(DownloadCachePaths.GetDownloadRoot(), DownloadCachePaths.BuildTufCacheKey(id.ToString(CultureInfo.InvariantCulture)));
+    if (!Directory.Exists(directory) || !HasLevelFile(directory))
+      throw new InvalidOperationException("downloaded_level_not_found");
+
+    string manifestPath = Path.Combine(directory, ManifestFileName);
+    DownloadedLevelManifest manifest = ReadManifest(manifestPath);
+    if (manifest?.Id != id)
+    {
+      long downloadedAt = new DateTimeOffset(Directory.GetLastWriteTimeUtc(directory)).ToUnixTimeMilliseconds();
+      manifest = BuildManifest(id, downloadedAt, CalculatePayloadSize(directory), null, directory);
+    }
+    if (string.IsNullOrWhiteSpace(manifest.InstalledPayloadHash))
+    {
+      manifest.Version = 2;
+      manifest.InstalledPayloadHash = CalculatePayloadHash(directory);
+      WriteAtomic(manifestPath, manifest);
+    }
+
+    return ToUpdateDescriptor(manifest, directory);
+  }
+
+  public static DownloadedLevelItem RecordUpdateCheck(
+    int id,
+    TufLevelInfo remote,
+    string availablePayloadHash,
+    bool upToDate)
+  {
+    DownloadedLevelUpdateDescriptor descriptor = GetUpdateDescriptor(id);
+    string manifestPath = Path.Combine(descriptor.Directory, ManifestFileName);
+    DownloadedLevelManifest manifest = ReadManifest(manifestPath) ??
+      BuildManifest(id, descriptor.DownloadedAtUnixMs, descriptor.SizeBytes, remote, descriptor.Directory);
+    manifest = BuildManifest(id, manifest.DownloadedAtUnixMs, manifest.SizeBytes, remote, descriptor.Directory, manifest);
+    manifest.LastUpdateCheckedAtUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+    if (upToDate)
+    {
+      if (!string.IsNullOrWhiteSpace(remote?.FileId)) manifest.DownloadedFileId = remote.FileId;
+      if (string.IsNullOrWhiteSpace(manifest.InstalledPayloadHash))
+        manifest.InstalledPayloadHash = CalculatePayloadHash(descriptor.Directory);
+      ClearAvailableUpdate(manifest);
+    }
+    else
+    {
+      manifest.AvailableFileId = remote?.FileId;
+      manifest.AvailablePayloadHash = availablePayloadHash;
+      manifest.AvailableUpdatedAtUtc = remote?.UpdatedAt;
+    }
+    WriteAtomic(manifestPath, manifest);
+    return ToItem(manifest);
+  }
+
+  public static DownloadedLevelItem RecordActivatedUpdate(
+    int id,
+    string directory,
+    DownloadedLevelUpdateDescriptor previous,
+    TufLevelInfo remote,
+    string installedPayloadHash,
+    long sizeBytes)
+  {
+    DownloadedLevelManifest existing = ReadManifest(Path.Combine(directory, ManifestFileName));
+    bool alreadyRecorded = existing != null &&
+      string.Equals(existing.InstalledPayloadHash, installedPayloadHash, StringComparison.OrdinalIgnoreCase) &&
+      (string.IsNullOrWhiteSpace(remote?.FileId) || string.Equals(existing.DownloadedFileId, remote.FileId, StringComparison.Ordinal));
+    DownloadedLevelManifest manifest = BuildManifest(
+      id,
+      previous.DownloadedAtUnixMs,
+      sizeBytes,
+      remote,
+      directory,
+      existing);
+    manifest.DownloadedFileId = remote?.FileId;
+    manifest.InstalledPayloadHash = installedPayloadHash;
+    manifest.LastUpdateCheckedAtUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+    ClearAvailableUpdate(manifest);
+    WriteAtomic(Path.Combine(directory, ManifestFileName), manifest);
+
+    lock (Gate)
+    {
+      if (!alreadyRecorded && _summary != null && string.Equals(_summary.State, "ready", StringComparison.Ordinal))
+      {
+        _summary.TotalSizeBytes = Math.Max(0, checked(_summary.TotalSizeBytes - previous.SizeBytes + sizeBytes));
+        _summary.LastCalculatedAtUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        SaveSummaryLocked();
+      }
+    }
+    return ToItem(manifest);
+  }
+
+  public static DownloadedLevelItem GetItem(int id)
+  {
+    DownloadedLevelUpdateDescriptor descriptor = GetUpdateDescriptor(id);
+    DownloadedLevelManifest manifest = ReadManifest(Path.Combine(descriptor.Directory, ManifestFileName));
+    if (manifest == null)
+      throw new InvalidOperationException("downloaded_level_manifest_missing");
+    return ToItem(manifest);
+  }
+
+  public static long GetPayloadSize(string directory) => CalculatePayloadSize(directory);
+
+  public static string CalculatePayloadHash(string directory)
+  {
+    if (!Directory.Exists(directory)) throw new DirectoryNotFoundException(directory);
+    using SHA256 hash = SHA256.Create();
+    string[] files = Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories)
+      .Where(file => !IsManifestFile(file))
+      .OrderBy(file => Path.GetRelativePath(directory, file).Replace('\\', '/'), StringComparer.Ordinal)
+      .ToArray();
+    byte[] buffer = new byte[128 * 1024];
+    foreach (string file in files)
+    {
+      string relativePath = Path.GetRelativePath(directory, file).Replace('\\', '/');
+      byte[] pathBytes = Encoding.UTF8.GetBytes(relativePath);
+      byte[] pathLength = BitConverter.GetBytes(pathBytes.Length);
+      hash.TransformBlock(pathLength, 0, pathLength.Length, null, 0);
+      hash.TransformBlock(pathBytes, 0, pathBytes.Length, null, 0);
+      using FileStream input = File.OpenRead(file);
+      int read;
+      while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+        hash.TransformBlock(buffer, 0, read, null, 0);
+    }
+    hash.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+    return BitConverter.ToString(hash.Hash).Replace("-", "").ToLowerInvariant();
   }
 
   public static void NotifyStorageRootChanged()
@@ -289,18 +423,7 @@ public static class DownloadLibraryService
         DateTimeOffset.FromUnixTimeMilliseconds(candidate.DownloadedAtUnixMs).UtcDateTime);
     }
 
-    return new DownloadedLevelItem
-    {
-      Id = manifest.Id,
-      DiffId = manifest.DiffId,
-      Artist = manifest.Artist,
-      LevelName = manifest.LevelName,
-      Creator = manifest.Creator,
-      SizeBytes = Math.Max(0, manifest.SizeBytes),
-      DownloadedAtUnixMs = manifest.DownloadedAtUnixMs,
-      DownloadedAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(manifest.DownloadedAtUnixMs).UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
-      MetadataState = "ready"
-    };
+    return ToItem(manifest);
   }
 
   private static DownloadedLevelManifest BuildManifest(
@@ -308,7 +431,8 @@ public static class DownloadLibraryService
     long downloadedAt,
     long sizeBytes,
     TufLevelInfo remote,
-    string directory)
+    string directory,
+    DownloadedLevelManifest existing = null)
   {
     LocalLevelMetadata local = ReadLocalMetadata(directory);
     string levelName = FirstNonEmpty(remote?.Song, local.LevelName);
@@ -320,7 +444,7 @@ public static class DownloadLibraryService
       !string.IsNullOrWhiteSpace(creator);
     return new DownloadedLevelManifest
     {
-      Version = 1,
+      Version = 2,
       Id = id,
       DiffId = remote?.DiffId ?? 0,
       Artist = artist,
@@ -328,8 +452,53 @@ public static class DownloadLibraryService
       Creator = creator,
       SizeBytes = sizeBytes,
       DownloadedAtUnixMs = downloadedAt,
-      MetadataState = complete ? "ready" : "partial"
+      MetadataState = complete ? "ready" : "partial",
+      DownloadedFileId = existing?.DownloadedFileId,
+      InstalledPayloadHash = existing?.InstalledPayloadHash,
+      AvailableFileId = existing?.AvailableFileId,
+      AvailablePayloadHash = existing?.AvailablePayloadHash,
+      AvailableUpdatedAtUtc = existing?.AvailableUpdatedAtUtc,
+      LastUpdateCheckedAtUtc = existing?.LastUpdateCheckedAtUtc
     };
+  }
+
+  private static DownloadedLevelItem ToItem(DownloadedLevelManifest manifest) => new()
+  {
+    Id = manifest.Id,
+    DiffId = manifest.DiffId,
+    Artist = manifest.Artist,
+    LevelName = manifest.LevelName,
+    Creator = manifest.Creator,
+    SizeBytes = Math.Max(0, manifest.SizeBytes),
+    DownloadedAtUnixMs = manifest.DownloadedAtUnixMs,
+    DownloadedAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(manifest.DownloadedAtUnixMs).UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+    MetadataState = manifest.MetadataState,
+    UpdateState = HasAvailableUpdate(manifest) ? "update_available" : "idle"
+  };
+
+  private static DownloadedLevelUpdateDescriptor ToUpdateDescriptor(DownloadedLevelManifest manifest, string directory) => new()
+  {
+    Id = manifest.Id,
+    Directory = directory,
+    DownloadedAtUnixMs = manifest.DownloadedAtUnixMs,
+    SizeBytes = Math.Max(0, manifest.SizeBytes),
+    DownloadedFileId = manifest.DownloadedFileId,
+    InstalledPayloadHash = manifest.InstalledPayloadHash,
+    AvailableFileId = manifest.AvailableFileId,
+    AvailablePayloadHash = manifest.AvailablePayloadHash,
+    AvailableUpdatedAtUtc = manifest.AvailableUpdatedAtUtc,
+    LastUpdateCheckedAtUtc = manifest.LastUpdateCheckedAtUtc
+  };
+
+  private static bool HasAvailableUpdate(DownloadedLevelManifest manifest) =>
+    !string.IsNullOrWhiteSpace(manifest.AvailableFileId) ||
+    !string.IsNullOrWhiteSpace(manifest.AvailablePayloadHash);
+
+  private static void ClearAvailableUpdate(DownloadedLevelManifest manifest)
+  {
+    manifest.AvailableFileId = null;
+    manifest.AvailablePayloadHash = null;
+    manifest.AvailableUpdatedAtUtc = null;
   }
 
   private static LocalLevelMetadata ReadLocalMetadata(string directory)
@@ -483,7 +652,7 @@ public static class DownloadLibraryService
     {
       if (!File.Exists(path)) return null;
       DownloadedLevelManifest value = JsonConvert.DeserializeObject<DownloadedLevelManifest>(File.ReadAllText(path));
-      return value?.Version == 1 && value.Id > 0 && value.DownloadedAtUnixMs > 0 ? value : null;
+      return value != null && (value.Version == 1 || value.Version == 2) && value.Id > 0 && value.DownloadedAtUnixMs > 0 ? value : null;
     }
     catch { return null; }
   }
@@ -505,6 +674,13 @@ public static class DownloadLibraryService
     File.WriteAllText(temporary, JsonConvert.SerializeObject(value, Formatting.Indented));
     if (File.Exists(path)) File.Replace(temporary, path, null);
     else File.Move(temporary, path);
+  }
+
+  private static bool IsManifestFile(string file)
+  {
+    string name = Path.GetFileName(file);
+    return string.Equals(name, ManifestFileName, StringComparison.OrdinalIgnoreCase) ||
+      string.Equals(name, ManifestFileName + ".tmp", StringComparison.OrdinalIgnoreCase);
   }
 
   private static void SaveSummaryLocked()
@@ -585,6 +761,12 @@ public static class DownloadLibraryService
     public long SizeBytes { get; set; }
     public long DownloadedAtUnixMs { get; set; }
     public string MetadataState { get; set; }
+    public string DownloadedFileId { get; set; }
+    public string InstalledPayloadHash { get; set; }
+    public string AvailableFileId { get; set; }
+    public string AvailablePayloadHash { get; set; }
+    public string AvailableUpdatedAtUtc { get; set; }
+    public string LastUpdateCheckedAtUtc { get; set; }
   }
 
   private sealed class DownloadLibrarySummaryFile

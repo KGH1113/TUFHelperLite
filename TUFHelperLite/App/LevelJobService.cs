@@ -115,6 +115,36 @@ public static class LevelJobService
     return job.Snapshot();
   }
 
+  public static DownloadJobSnapshot StartUpdateCheck(string id)
+  {
+    EnsureStorageAvailable();
+    string normalizedId = DownloadCachePaths.NormalizeLevelId(id);
+    if (!int.TryParse(normalizedId, out int parsedId) || parsedId <= 0)
+      throw new ArgumentException("A valid level id is required.", nameof(id));
+    string cacheKey = DownloadCachePaths.BuildTufCacheKey(normalizedId);
+    DownloadJob existing = FindActiveByCacheKey(cacheKey);
+    if (existing != null) return existing.Snapshot();
+
+    DownloadJob job = Add("level.update-check", normalizedId, null, cacheKey, false);
+    Enqueue(job, () => LevelUpdateService.Check(parsedId, job));
+    return job.Snapshot();
+  }
+
+  public static DownloadJobSnapshot StartUpdate(string id)
+  {
+    EnsureStorageAvailable();
+    string normalizedId = DownloadCachePaths.NormalizeLevelId(id);
+    if (!int.TryParse(normalizedId, out int parsedId) || parsedId <= 0)
+      throw new ArgumentException("A valid level id is required.", nameof(id));
+    string cacheKey = DownloadCachePaths.BuildTufCacheKey(normalizedId);
+    DownloadJob existing = FindActiveByCacheKey(cacheKey);
+    if (existing != null) return existing.Snapshot();
+
+    DownloadJob job = Add("level.update", normalizedId, null, cacheKey, false);
+    Enqueue(job, () => LevelUpdateService.Update(parsedId, job));
+    return job.Snapshot();
+  }
+
   public static DownloadJobSnapshot Get(string jobId)
   {
     lock (Lock)

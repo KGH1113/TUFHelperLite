@@ -34,6 +34,7 @@ public sealed class Main
       DownloadStorageSettingsStore.Initialize(modEntry.Path);
       DownloadLibraryService.Initialize(modEntry.Path);
       DownloadStorageMigrationService.Initialize(modEntry.Path);
+      LevelUpdateService.Initialize(modEntry.Path);
       modEntry.OnToggle = OnToggle;
       modEntry.OnUnload = OnUnload;
       Instance.Enable();

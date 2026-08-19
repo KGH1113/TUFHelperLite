@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using Newtonsoft.Json;
 using TUFHelperLite.Domain.Errors;
 using TUFHelperLite.Domain.Downloads;
@@ -11,6 +12,7 @@ using TUFHelperLite.Infrastructure.Downloads;
 using TUFHelperLite.Infrastructure.Settings;
 using TUFHelperLite.Integration;
 using TUFHelperLite.App;
+using TUFHelperLite;
 
 internal static class Program
 {
@@ -52,6 +54,8 @@ internal static class Program
       RunCancellationTests();
       RunDownloadStorageMigrationTests();
       RunDownloadLibraryTests();
+      RunLevelUpdateTests();
+      RunAdofaiIpcMigrationGuardTests();
     }
     finally
     {
@@ -340,6 +344,26 @@ internal static class Program
         FromCache = false
       };
       DownloadLibraryService.RecordDownload(result, null, "66");
+      DownloadedLevelUpdateDescriptor descriptor = DownloadLibraryService.GetUpdateDescriptor(66);
+      CheckTrue("download manifest records installed payload hash", !string.IsNullOrWhiteSpace(descriptor.InstalledPayloadHash));
+      CheckString("legacy download revision remains unknown", null, descriptor.DownloadedFileId);
+      TUFHelperLite.Infrastructure.Tuforums.TufLevelInfo updateMetadata = new()
+      {
+        Id = 66,
+        DiffId = 18,
+        Song = "Updated Level",
+        Artist = "Updated Artist",
+        Creator = "Updated Creator",
+        FileId = "file-v2",
+        UpdatedAt = "2026-08-19T00:00:00Z"
+      };
+      DownloadedLevelItem available = DownloadLibraryService.RecordUpdateCheck(
+        66, updateMetadata, "candidate-hash", false);
+      CheckString("available update persists in item", "update_available", available.UpdateState);
+      CheckString("available update persists after reload", "update_available", DownloadLibraryService.GetItem(66).UpdateState);
+      DownloadedLevelItem current = DownloadLibraryService.RecordUpdateCheck(66, updateMetadata, null, true);
+      CheckString("matching update clears availability", "idle", current.UpdateState);
+      CheckString("matching update records remote revision", "file-v2", DownloadLibraryService.GetUpdateDescriptor(66).DownloadedFileId);
       try
       {
         DownloadLibraryService.GetPage(first.NextCursor, "next", 20);
@@ -357,6 +381,212 @@ internal static class Program
       DownloadLibraryService.SetMetadataProviderForTests(null);
       if (Directory.Exists(installRoot)) Directory.Delete(installRoot, true);
     }
+  }
+
+  private static void RunLevelUpdateTests()
+  {
+    string installRoot = Path.Combine(Path.GetTempPath(), "tufhelperlite-update-tests-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(installRoot);
+    try
+    {
+      DownloadStorageSettingsStore.Initialize(installRoot);
+      DownloadLibraryService.Initialize(installRoot);
+      DownloadStorageMigrationService.Initialize(installRoot);
+      DownloadStorageMigrationService.SetLevelInUseProbeForTests(_ => false);
+      LevelUpdateService.Initialize(installRoot);
+      string root = DownloadCachePaths.GetDownloadRoot();
+      string directory = Path.Combine(root, "tuf-100");
+      string levelPath = CreateLevel(root, "tuf-100", "chart.adofai");
+      File.WriteAllText(levelPath, "old payload");
+      TUFHelperLite.Infrastructure.Tuforums.TufLevelInfo installed = new()
+      {
+        Id = 100,
+        DiffId = 12,
+        Song = "Old Level",
+        Artist = "Artist",
+        Creator = "Creator",
+        FileId = "file-v1",
+        DownloadLink = "https://cdn.example/file-v1.zip"
+      };
+      DownloadLibraryService.RecordDownload(new LevelDownloadResult
+      {
+        Directory = directory,
+        SelectedLevelPath = levelPath,
+        LevelPaths = new List<string> { levelPath },
+        FromCache = false
+      }, installed, "100");
+      DownloadedLevelUpdateDescriptor before = DownloadLibraryService.GetUpdateDescriptor(100);
+      TUFHelperLite.Infrastructure.Tuforums.TufLevelInfo available = new()
+      {
+        Id = 100,
+        DiffId = 18,
+        Song = "New Level",
+        Artist = "Artist",
+        Creator = "Creator",
+        FileId = "file-v2",
+        UpdatedAt = "2026-08-19T00:00:00Z",
+        DownloadLink = "https://cdn.example/file-v2.zip"
+      };
+      int stagingDownloads = 0;
+      LevelUpdateService.SetDependenciesForTests(
+        _ => available,
+        (url, staging, token, progress) =>
+        {
+          stagingDownloads++;
+          Directory.CreateDirectory(staging);
+          string stagedLevel = Path.Combine(staging, "chart.adofai");
+          File.WriteAllText(stagedLevel, "new payload with a different size");
+          progress?.Invoke(new LevelDownloadProgress { Stage = "downloading", Progress = 1 });
+          return new LevelDownloadResult
+          {
+            SourceUrl = url,
+            DirectUrl = url,
+            Directory = staging,
+            SelectedLevelPath = stagedLevel,
+            LevelPaths = new List<string> { stagedLevel },
+            FromCache = false
+          };
+        });
+
+      DownloadJob checkJob = new("level.update-check", "100", null, "tuf-100", false);
+      LevelUpdateService.Check(100, checkJob);
+      CheckString("known revision update check state", "update_available", checkJob.Snapshot().UpdateState);
+      CheckLong("known revision avoids payload download", 0, stagingDownloads);
+      CheckString("update availability survives manifest reload", "update_available", DownloadLibraryService.GetItem(100).UpdateState);
+
+      DownloadLibraryService.RebuildSummaryForTests();
+      DownloadLibrarySummary summaryBefore = DownloadLibraryService.GetSummary();
+      DownloadJob updateJob = new("level.update", "100", null, "tuf-100", false);
+      LevelUpdateService.Update(100, updateJob);
+      DownloadJobSnapshot completed = updateJob.Snapshot();
+      DownloadedLevelUpdateDescriptor after = DownloadLibraryService.GetUpdateDescriptor(100);
+      DownloadLibrarySummary summaryAfter = DownloadLibraryService.GetSummary();
+      CheckString("level update job completes up to date", "up_to_date", completed.UpdateState);
+      CheckLong("level update downloads staged payload once", 1, stagingDownloads);
+      CheckString("level update activates new payload", "new payload with a different size", File.ReadAllText(Path.Combine(directory, "chart.adofai")));
+      CheckString("level update records new revision", "file-v2", after.DownloadedFileId);
+      CheckLong("level update preserves downloaded timestamp", before.DownloadedAtUnixMs, after.DownloadedAtUnixMs);
+      CheckLong("level update preserves summary count", summaryBefore.LevelCount, summaryAfter.LevelCount);
+      CheckLong("level update adjusts summary size", after.SizeBytes, summaryAfter.TotalSizeBytes);
+
+      string legacyDirectory = Path.Combine(root, "tuf-101");
+      string legacyLevel = CreateLevel(root, "tuf-101", "chart.adofai");
+      File.WriteAllText(legacyLevel, "legacy payload");
+      DownloadLibraryService.RecordDownload(new LevelDownloadResult
+      {
+        Directory = legacyDirectory,
+        SelectedLevelPath = legacyLevel,
+        LevelPaths = new List<string> { legacyLevel },
+        FromCache = true
+      }, installed, "101");
+      TUFHelperLite.Infrastructure.Tuforums.TufLevelInfo legacyRemote = new()
+      {
+        Id = 101,
+        DiffId = 12,
+        Song = "Legacy Level",
+        Artist = "Artist",
+        Creator = "Creator",
+        FileId = "legacy-file-v2",
+        DownloadLink = "https://cdn.example/101.zip"
+      };
+      LevelUpdateService.SetDependenciesForTests(
+        _ => legacyRemote,
+        (url, staging, token, progress) =>
+        {
+          stagingDownloads++;
+          Directory.CreateDirectory(staging);
+          string stagedLevel = Path.Combine(staging, "chart.adofai");
+          File.WriteAllText(stagedLevel, "legacy payload");
+          return new LevelDownloadResult
+          {
+            SourceUrl = url,
+            DirectUrl = url,
+            Directory = staging,
+            SelectedLevelPath = stagedLevel,
+            LevelPaths = new List<string> { stagedLevel },
+            FromCache = false
+          };
+        });
+      DownloadJob legacyCheck = new("level.update-check", "101", null, "tuf-101", false);
+      LevelUpdateService.Check(101, legacyCheck);
+      CheckString("unknown revision compares equal payload", "up_to_date", legacyCheck.Snapshot().UpdateState);
+      CheckString("equal legacy payload records remote revision", "legacy-file-v2", DownloadLibraryService.GetUpdateDescriptor(101).DownloadedFileId);
+
+      string changedDirectory = Path.Combine(root, "tuf-102");
+      string changedLevel = CreateLevel(root, "tuf-102", "chart.adofai");
+      File.WriteAllText(changedLevel, "old legacy payload");
+      DownloadLibraryService.RecordDownload(new LevelDownloadResult
+      {
+        Directory = changedDirectory,
+        SelectedLevelPath = changedLevel,
+        LevelPaths = new List<string> { changedLevel },
+        FromCache = true
+      }, installed, "102");
+      legacyRemote.Id = 102;
+      legacyRemote.FileId = "changed-file-v2";
+      legacyRemote.DownloadLink = "https://cdn.example/102.zip";
+      DownloadJob changedCheck = new("level.update-check", "102", null, "tuf-102", false);
+      LevelUpdateService.Check(102, changedCheck);
+      CheckString("unknown revision detects changed payload", "update_available", changedCheck.Snapshot().UpdateState);
+      CheckString("changed legacy availability persists", "update_available", DownloadLibraryService.GetItem(102).UpdateState);
+
+      DownloadStorageMigrationService.SetLevelInUseProbeForTests(_ => true);
+      try
+      {
+        LevelUpdateService.Update(102, new DownloadJob("level.update", "102", null, "tuf-102", false));
+        Failures.Add("open downloaded level update rejected: expected exception");
+      }
+      catch (LevelUpdateException exception)
+      {
+        CheckString("open downloaded level update error", "downloaded_level_in_use", exception.Code);
+      }
+      finally
+      {
+        DownloadStorageMigrationService.SetLevelInUseProbeForTests(_ => false);
+      }
+
+      string recoveryTarget = Path.Combine(root, ".update-recovery-target");
+      string recoveryBackup = recoveryTarget + ".backup";
+      string recoveryStaging = recoveryTarget + ".staging";
+      Directory.CreateDirectory(recoveryTarget);
+      Directory.CreateDirectory(recoveryBackup);
+      Directory.CreateDirectory(recoveryStaging);
+      File.WriteAllText(Path.Combine(recoveryTarget, "state.txt"), "new");
+      File.WriteAllText(Path.Combine(recoveryBackup, "state.txt"), "old");
+      File.WriteAllText(Path.Combine(installRoot, "DownloadUpdateJournal.json"), JsonConvert.SerializeObject(new
+      {
+        Version = 1,
+        Id = 100,
+        TargetDirectory = recoveryTarget,
+        StagingDirectory = recoveryStaging,
+        BackupDirectory = recoveryBackup,
+        Phase = "backup_moved"
+      }));
+      LevelUpdateService.Initialize(installRoot);
+      CheckString("interrupted activation restores old payload", "old", File.ReadAllText(Path.Combine(recoveryTarget, "state.txt")));
+      CheckFalse("interrupted activation removes backup", Directory.Exists(recoveryBackup));
+      CheckFalse("interrupted activation clears journal", File.Exists(Path.Combine(installRoot, "DownloadUpdateJournal.json")));
+    }
+    finally
+    {
+      LevelUpdateService.SetDependenciesForTests(null, null);
+      DownloadStorageMigrationService.SetLevelInUseProbeForTests(null);
+      DownloadStorageSettingsStore.Initialize(AppDomain.CurrentDomain.BaseDirectory);
+      DownloadLibraryService.Initialize(AppDomain.CurrentDomain.BaseDirectory);
+      if (Directory.Exists(installRoot)) Directory.Delete(installRoot, true);
+    }
+  }
+
+  private static void RunAdofaiIpcMigrationGuardTests()
+  {
+    CheckTrue("legacy direct entrypoint requires migration",
+      AdofaiIpcMigrationBridge.RequiresLegacyMigration("TUFHelperLite.Main.Load"));
+    CheckFalse("dependency entrypoint skips legacy migration",
+      AdofaiIpcMigrationBridge.RequiresLegacyMigration("TUFHelperLite.Launcher.DependencyEntryPoint.Load"));
+    CheckFalse("dependency shim entrypoint skips legacy migration",
+      AdofaiIpcMigrationBridge.RequiresLegacyMigration("AdofaiIpc.DependencyShim.DependencyShim.Load"));
+    CheckFalse("missing entrypoint skips legacy migration",
+      AdofaiIpcMigrationBridge.RequiresLegacyMigration(null));
   }
 
   private static void Check(string name, int? expected, int? actual)
