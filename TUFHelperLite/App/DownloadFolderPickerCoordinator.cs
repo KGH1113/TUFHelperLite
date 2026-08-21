@@ -13,6 +13,7 @@ public sealed class DownloadFolderPickerSnapshot
   public string State;
   public string SelectionToken;
   public string Directory;
+  public string SelectionKind;
   public string ErrorCode;
   public string Message;
 }
@@ -21,7 +22,9 @@ public static class DownloadFolderPickerCoordinator
 {
   private sealed class PickOperation
   {
+    public PickOperation(bool allowExisting) => AllowExisting = allowExisting;
     public readonly string Id = Guid.NewGuid().ToString("N");
+    public bool AllowExisting { get; }
     public DownloadFolderPickerSnapshot Result;
   }
 
@@ -29,8 +32,9 @@ public static class DownloadFolderPickerCoordinator
   private static PickOperation _active;
   private static string _selectedToken;
   private static string _selectedDirectory;
+  private static string _selectedKind;
 
-  public static DownloadFolderPickerSnapshot Start()
+  public static DownloadFolderPickerSnapshot Start(bool allowExisting = false)
   {
     PickOperation operation;
     lock (Gate)
@@ -38,10 +42,11 @@ public static class DownloadFolderPickerCoordinator
       if (_active != null && _active.Result == null)
         return Error(_active.Id, "folder_picker_busy", "Another folder picker is already open.");
 
-      operation = new PickOperation();
+      operation = new PickOperation(allowExisting);
       _active = operation;
       _selectedToken = null;
       _selectedDirectory = null;
+      _selectedKind = null;
     }
 
     global::AdofaiIpc.AdofaiIpc.RunOnMainThread(() => BeginPick(operation));
@@ -60,14 +65,22 @@ public static class DownloadFolderPickerCoordinator
 
   public static bool TryConsumeSelection(string token, out string directory)
   {
+    return TryConsumeSelection(token, out directory, out _);
+  }
+
+  public static bool TryConsumeSelection(string token, out string directory, out string selectionKind)
+  {
     lock (Gate)
     {
       directory = null;
+      selectionKind = null;
       if (string.IsNullOrWhiteSpace(token) || !string.Equals(token, _selectedToken, StringComparison.Ordinal))
         return false;
       directory = _selectedDirectory;
+      selectionKind = _selectedKind;
       _selectedToken = null;
       _selectedDirectory = null;
+      _selectedKind = null;
       return !string.IsNullOrWhiteSpace(directory);
     }
   }
@@ -79,6 +92,7 @@ public static class DownloadFolderPickerCoordinator
       _active = null;
       _selectedToken = null;
       _selectedDirectory = null;
+      _selectedKind = null;
     }
   }
 
@@ -95,7 +109,9 @@ public static class DownloadFolderPickerCoordinator
     {
       CompleteSelection(operation, FileBrowser.PickFolder(
         DownloadCachePaths.GetDownloadRoot(),
-        title: "Choose an empty TUFHelperLite download folder"));
+        title: operation.AllowExisting
+          ? "Choose a TUFHelperLite download folder"
+          : "Choose an empty TUFHelperLite download folder"));
     }
     catch (Exception exception)
     {
@@ -112,7 +128,9 @@ public static class DownloadFolderPickerCoordinator
         StartInfo = new ProcessStartInfo
         {
           FileName = "/usr/bin/osascript",
-          Arguments = "-e \"POSIX path of (choose folder with prompt \\\"Choose an empty TUFHelperLite download folder\\\")\"",
+          Arguments = operation.AllowExisting
+            ? "-e \"POSIX path of (choose folder with prompt \\\"Choose a TUFHelperLite download folder\\\")\""
+            : "-e \"POSIX path of (choose folder with prompt \\\"Choose an empty TUFHelperLite download folder\\\")\"",
           UseShellExecute = false,
           RedirectStandardOutput = true,
           RedirectStandardError = true,
@@ -147,19 +165,24 @@ public static class DownloadFolderPickerCoordinator
 
     try
     {
-      string canonical = DownloadStorageMigrationService.ValidateSelectedTarget(directory);
+      string kind = "migration";
+      string canonical = operation.AllowExisting
+        ? DownloadStorageMigrationService.ValidateChangeTarget(directory, out kind)
+        : DownloadStorageMigrationService.ValidateSelectedTarget(directory);
       string token = Guid.NewGuid().ToString("N");
       lock (Gate)
       {
         if (!ReferenceEquals(_active, operation)) return;
         _selectedToken = token;
         _selectedDirectory = canonical;
+        _selectedKind = kind ?? "migration";
         operation.Result = new DownloadFolderPickerSnapshot
         {
           OperationId = operation.Id,
           State = "selected",
           SelectionToken = token,
           Directory = canonical,
+          SelectionKind = _selectedKind,
           Message = "Folder selected."
         };
       }

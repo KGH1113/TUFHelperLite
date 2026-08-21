@@ -13,6 +13,11 @@ public sealed class FolderPickerStatusRequest
   public string OperationId;
 }
 
+public sealed class FolderPickerStartRequest
+{
+  public bool AllowExisting;
+}
+
 public sealed class StorageMigrationStartRequest
 {
   public string SelectionToken;

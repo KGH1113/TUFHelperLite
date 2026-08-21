@@ -117,6 +117,35 @@ public static class LevelJobService
 
   public static DownloadJobSnapshot StartUpdateCheck(string id)
   {
+    if (LevelUpdateCheckBatchService.IsActive)
+      throw new InvalidOperationException("downloaded_level_batch_check_in_progress");
+    return StartUpdateCheckCore(id);
+  }
+
+  internal static bool TryStartBatchUpdateCheck(string id, out DownloadJobSnapshot snapshot)
+  {
+    EnsureStorageAvailable();
+    string normalizedId = DownloadCachePaths.NormalizeLevelId(id);
+    if (!int.TryParse(normalizedId, out int parsedId) || parsedId <= 0)
+      throw new ArgumentException("A valid level id is required.", nameof(id));
+    string cacheKey = DownloadCachePaths.BuildTufCacheKey(normalizedId);
+    DownloadJob job;
+    lock (Lock)
+    {
+      if (Jobs.Values.Any(candidate => candidate.CacheKey == cacheKey && !candidate.IsDone))
+      {
+        snapshot = null;
+        return false;
+      }
+      job = Add("level.update-check", normalizedId, null, cacheKey, false);
+    }
+    Enqueue(job, () => LevelUpdateService.Check(parsedId, job));
+    snapshot = job.Snapshot();
+    return true;
+  }
+
+  private static DownloadJobSnapshot StartUpdateCheckCore(string id)
+  {
     EnsureStorageAvailable();
     string normalizedId = DownloadCachePaths.NormalizeLevelId(id);
     if (!int.TryParse(normalizedId, out int parsedId) || parsedId <= 0)
@@ -132,6 +161,8 @@ public static class LevelJobService
 
   public static DownloadJobSnapshot StartUpdate(string id)
   {
+    if (LevelUpdateCheckBatchService.IsActive)
+      throw new InvalidOperationException("downloaded_level_batch_check_in_progress");
     EnsureStorageAvailable();
     string normalizedId = DownloadCachePaths.NormalizeLevelId(id);
     if (!int.TryParse(normalizedId, out int parsedId) || parsedId <= 0)

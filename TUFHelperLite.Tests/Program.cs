@@ -205,6 +205,62 @@ internal static class Program
         CheckString("nested target error", "storage_target_overlaps_source", exception.Code);
       }
 
+      DownloadStorageIdentity identity = DownloadStorageIdentityService.Ensure(targetRoot);
+      CheckTrue("storage marker created", File.Exists(Path.Combine(targetRoot, DownloadStorageIdentityService.MarkerFileName)));
+      CheckTrue("storage marker has id", !string.IsNullOrWhiteSpace(identity.StorageId));
+      File.WriteAllText(Path.Combine(targetRoot, DownloadStorageIdentityService.MarkerFileName), "{broken");
+      DownloadStorageIdentity repaired = DownloadStorageIdentityService.Ensure(targetRoot);
+      CheckTrue("corrupt storage marker repaired", !string.IsNullOrWhiteSpace(repaired.StorageId));
+
+      string reconnectTarget = Path.Combine(installRoot, "existing-library");
+      CreateLevel(reconnectTarget, "tuf-999", "chart.adofai");
+      string currentDuplicate = Path.Combine(targetRoot, "tuf-777");
+      File.WriteAllText(Path.Combine(currentDuplicate, DownloadLibraryService.ManifestFileName), JsonConvert.SerializeObject(new
+      {
+        Version = 2,
+        Id = 777,
+        DownloadedAtUnixMs = 1_700_000_000_000,
+        DownloadedFileId = "latest-777"
+      }));
+      string olderDuplicate = CreateLevel(reconnectTarget, "tuf-777", "chart.adofai");
+      File.WriteAllText(olderDuplicate, "older payload");
+      File.WriteAllText(Path.Combine(reconnectTarget, "tuf-777", DownloadLibraryService.ManifestFileName), JsonConvert.SerializeObject(new
+      {
+        Version = 2,
+        Id = 777,
+        DownloadedAtUnixMs = 1_600_000_000_000,
+        DownloadedFileId = "old-777"
+      }));
+      DownloadLibraryService.SetMetadataProviderForTests(_ => new TUFHelperLite.Infrastructure.Tuforums.TufLevelInfo
+      {
+        Id = 777,
+        FileId = "latest-777",
+        DownloadLink = "https://cdn.example/777.zip"
+      });
+      string selectionKind;
+      DownloadStorageMigrationService.ValidateChangeTarget(reconnectTarget, out selectionKind);
+      CheckString("existing library classified for reconnect", "merge_reconnect", selectionKind);
+      DownloadStorageMigrationSnapshot reconnect = DownloadStorageMigrationService.StartChangeForTarget(reconnectTarget);
+      CheckString("reconnect operation kind", "merge_reconnect", reconnect.OperationKind);
+      CheckTrue("reconnect worker completes", DownloadStorageMigrationService.WaitForWorkerForTests());
+      CheckString("reconnected root active", Path.GetFullPath(reconnectTarget), DownloadStorageSettingsStore.GetDownloadRoot());
+      CheckTrue("current level merged into existing library", File.Exists(Path.Combine(reconnectTarget, "tuf-777", "nested", "chart.adofai")));
+      CheckFalse("older duplicate replaced by official latest copy", File.Exists(Path.Combine(reconnectTarget, "tuf-777", "chart.adofai")));
+      CheckTrue("existing level preserved during merge", File.Exists(Path.Combine(reconnectTarget, "tuf-999", "chart.adofai")));
+
+      string unrelated = Path.Combine(installRoot, "unrelated-library");
+      Directory.CreateDirectory(unrelated);
+      File.WriteAllText(Path.Combine(unrelated, "notes.txt"), "not managed");
+      try
+      {
+        DownloadStorageMigrationService.ValidateChangeTarget(unrelated, out _);
+        Failures.Add("unrecognized reconnect target rejected: expected exception");
+      }
+      catch (DownloadStorageMigrationException exception)
+      {
+        CheckString("unrecognized reconnect target error", "storage_target_unrecognized_content", exception.Code);
+      }
+
       RunDownloadStorageResumeTest(installRoot);
       RunCorruptStorageSettingsTest(installRoot);
     }
@@ -213,6 +269,7 @@ internal static class Program
       DownloadStorageSettingsStore.Initialize(AppDomain.CurrentDomain.BaseDirectory);
       DownloadStorageMigrationService.Initialize(AppDomain.CurrentDomain.BaseDirectory);
       DownloadStorageMigrationService.SetLevelInUseProbeForTests(null);
+      DownloadLibraryService.SetMetadataProviderForTests(null);
       if (Directory.Exists(installRoot)) Directory.Delete(installRoot, true);
     }
   }
@@ -529,6 +586,16 @@ internal static class Program
       LevelUpdateService.Check(102, changedCheck);
       CheckString("unknown revision detects changed payload", "update_available", changedCheck.Snapshot().UpdateState);
       CheckString("changed legacy availability persists", "update_available", DownloadLibraryService.GetItem(102).UpdateState);
+
+      LevelUpdateCheckBatchService.Initialize(installRoot);
+      LevelUpdateCheckBatchSnapshot batchStarted = LevelUpdateCheckBatchService.Start();
+      CheckString("batch update check starts preparing", "preparing", batchStarted.State);
+      DateTime batchDeadline = DateTime.UtcNow.AddSeconds(10);
+      while (LevelUpdateCheckBatchService.IsActive && DateTime.UtcNow < batchDeadline) Thread.Sleep(20);
+      LevelUpdateCheckBatchSnapshot batchCompleted = LevelUpdateCheckBatchService.GetStatus();
+      CheckString("batch update check completes", "completed", batchCompleted.State);
+      CheckLong("batch update check snapshots all current levels", 3, batchCompleted.LevelsTotal);
+      CheckLong("batch update check processes snapshot", 3, batchCompleted.LevelsProcessed);
 
       DownloadStorageMigrationService.SetLevelInUseProbeForTests(_ => true);
       try

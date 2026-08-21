@@ -56,6 +56,9 @@ public static class IpcRegistration
     ipc.Register("level.downloaded-summary", DownloadedSummary);
     ipc.Register("level.update.check", UpdateCheck);
     ipc.Register("level.update.start", UpdateStart);
+    ipc.Register("level.update.check-all.start", UpdateCheckAllStart);
+    ipc.Register("level.update.check-all.status", UpdateCheckAllStatus);
+    ipc.Register("level.update.check-all.cancel", UpdateCheckAllCancel);
     ipc.Register("level.cancel", Cancel);
     ipc.Register("level.select", Select);
     ipc.Register("storage.get", StorageGet);
@@ -64,6 +67,10 @@ public static class IpcRegistration
     ipc.Register("storage.migration.start", StorageMigrationStart);
     ipc.Register("storage.migration.status", StorageMigrationStatus);
     ipc.Register("storage.migration.retry", StorageMigrationRetry);
+    ipc.Register("storage.change.start", StorageChangeStart);
+    ipc.Register("storage.change.status", StorageChangeStatus);
+    ipc.Register("storage.change.retry", StorageChangeRetry);
+    ipc.Register("storage.change.cancel", StorageChangeCancel);
   }
 
   private static global::AdofaiIpc.AdofaiIpcNamespace RegisterNamespace()
@@ -91,7 +98,14 @@ public static class IpcRegistration
       Ok = true,
       Mod = "TUFHelperLite",
       Version = Main.Instance.Version.ToString(),
-      Capabilities = new[] { "download-storage-migration-v1", "downloaded-level-library-v1", "downloaded-level-update-v1" }
+      Capabilities = new[]
+      {
+        "download-storage-migration-v1",
+        "downloaded-level-library-v1",
+        "downloaded-level-update-v1",
+        "downloaded-level-batch-update-check-v1",
+        "download-storage-reconnect-v1"
+      }
     };
   }
 
@@ -168,6 +182,12 @@ public static class IpcRegistration
     return LevelJobService.StartUpdate(body?.Id);
   }
 
+  private static object UpdateCheckAllStart(IpcRequest request) => LevelUpdateCheckBatchService.Start();
+
+  private static object UpdateCheckAllStatus(IpcRequest request) => LevelUpdateCheckBatchService.GetStatus();
+
+  private static object UpdateCheckAllCancel(IpcRequest request) => LevelUpdateCheckBatchService.Cancel();
+
   private static object Cancel(IpcRequest request)
   {
     JobStatusRequest body = ReadParams<JobStatusRequest>(request);
@@ -202,7 +222,8 @@ public static class IpcRegistration
 
   private static object StorageFolderPickStart(IpcRequest request)
   {
-    return DownloadFolderPickerCoordinator.Start();
+    FolderPickerStartRequest body = ReadParams<FolderPickerStartRequest>(request);
+    return DownloadFolderPickerCoordinator.Start(body?.AllowExisting == true);
   }
 
   private static object StorageFolderPickStatus(IpcRequest request)
@@ -226,6 +247,18 @@ public static class IpcRegistration
   {
     return DownloadStorageMigrationService.Retry();
   }
+
+  private static object StorageChangeStart(IpcRequest request)
+  {
+    StorageMigrationStartRequest body = ReadParams<StorageMigrationStartRequest>(request);
+    return DownloadStorageMigrationService.StartChange(body?.SelectionToken, body?.UseDefault == true);
+  }
+
+  private static object StorageChangeStatus(IpcRequest request) => DownloadStorageMigrationService.GetStatus();
+
+  private static object StorageChangeRetry(IpcRequest request) => DownloadStorageMigrationService.Retry();
+
+  private static object StorageChangeCancel(IpcRequest request) => DownloadStorageMigrationService.CancelChange();
 
   private static T ReadParams<T>(IpcRequest request) where T : class
   {
