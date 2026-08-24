@@ -123,6 +123,31 @@ public static class DownloadLibraryService
     }
   }
 
+  public static int WriteDownloadedIdSnapshot(string path, System.Threading.CancellationToken token)
+  {
+    EnsureStorageAvailable();
+    EnsureInitialized();
+    string temporary = path + ".tmp";
+    int count = 0;
+    using (StreamWriter writer = new(temporary, false, new UTF8Encoding(false)))
+    {
+      string root = DownloadCachePaths.GetDownloadRoot();
+      if (Directory.Exists(root))
+      {
+        foreach (string directory in Directory.EnumerateDirectories(root, "tuf-*", SearchOption.TopDirectoryOnly))
+        {
+          token.ThrowIfCancellationRequested();
+          if (!DownloadCachePaths.TryParseTufCacheKey(Path.GetFileName(directory), out int id) || !HasLevelFile(directory)) continue;
+          writer.WriteLine(id.ToString(CultureInfo.InvariantCulture));
+          count++;
+        }
+      }
+    }
+    if (File.Exists(path)) File.Replace(temporary, path, null);
+    else File.Move(temporary, path);
+    return count;
+  }
+
   public static void RecordDownload(LevelDownloadResult result, TufLevelInfo level, string levelId)
   {
     if (result == null || string.IsNullOrWhiteSpace(result.Directory)) return;
@@ -295,6 +320,62 @@ public static class DownloadLibraryService
     }
     hash.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
     return BitConverter.ToString(hash.Hash).Replace("-", "").ToLowerInvariant();
+  }
+
+  public static string ResolveDuplicateWinner(int id, string sourceDirectory, string targetDirectory,
+    System.Threading.CancellationToken cancellationToken = default)
+  {
+    string sourceHash = CalculatePayloadHash(sourceDirectory);
+    string targetHash = CalculatePayloadHash(targetDirectory);
+    if (string.Equals(sourceHash, targetHash, StringComparison.OrdinalIgnoreCase)) return "target";
+
+    DownloadedLevelManifest source = ReadManifest(Path.Combine(sourceDirectory, ManifestFileName));
+    DownloadedLevelManifest target = ReadManifest(Path.Combine(targetDirectory, ManifestFileName));
+    TufLevelInfo remote;
+    try { remote = _metadataProvider(id.ToString(CultureInfo.InvariantCulture)); }
+    catch (Exception exception)
+    {
+      throw new DownloadStorageMigrationException("storage_merge_conflict",
+        $"Level #{id} differs in both folders and the latest official version could not be checked: {exception.Message}");
+    }
+    if (remote == null || remote.IsDeleted || string.IsNullOrWhiteSpace(remote.DownloadLink))
+      throw new DownloadStorageMigrationException("storage_merge_conflict", $"Level #{id} has no comparable official download.");
+
+    bool sourceMatchesFile = !string.IsNullOrWhiteSpace(remote.FileId) &&
+      string.Equals(source?.DownloadedFileId, remote.FileId, StringComparison.Ordinal);
+    bool targetMatchesFile = !string.IsNullOrWhiteSpace(remote.FileId) &&
+      string.Equals(target?.DownloadedFileId, remote.FileId, StringComparison.Ordinal);
+    if (sourceMatchesFile != targetMatchesFile) return sourceMatchesFile ? "source" : "target";
+
+    string comparisonRoot = Path.Combine(Path.GetTempPath(), "tufhelperlite-merge-compare-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+      LevelArchiveDownloader.DownloadToDirectory(remote.DownloadLink, comparisonRoot,
+        cancellationToken, _ => { });
+      string officialHash = CalculatePayloadHash(comparisonRoot);
+      bool sourceMatchesHash = string.Equals(sourceHash, officialHash, StringComparison.OrdinalIgnoreCase);
+      bool targetMatchesHash = string.Equals(targetHash, officialHash, StringComparison.OrdinalIgnoreCase);
+      if (sourceMatchesHash != targetMatchesHash) return sourceMatchesHash ? "source" : "target";
+    }
+    catch (DownloadStorageMigrationException) { throw; }
+    catch (Exception exception)
+    {
+      throw new DownloadStorageMigrationException("storage_merge_conflict",
+        $"Level #{id} differs in both folders and could not be compared: {exception.Message}");
+    }
+    finally
+    {
+      try { if (Directory.Exists(comparisonRoot)) Directory.Delete(comparisonRoot, true); } catch { }
+    }
+    throw new DownloadStorageMigrationException("storage_merge_conflict",
+      $"Level #{id} differs in both folders and neither copy can be selected safely.");
+  }
+
+  public static bool IsValidDownloadedLevelDirectory(string directory, int expectedId)
+  {
+    if (!Directory.Exists(directory) || !HasLevelFile(directory)) return false;
+    DownloadedLevelManifest manifest = ReadManifest(Path.Combine(directory, ManifestFileName));
+    return manifest == null || manifest.Id == expectedId;
   }
 
   public static void NotifyStorageRootChanged()

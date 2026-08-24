@@ -3,6 +3,8 @@ namespace TUFHelperLite.Domain.Storage;
 public sealed class DownloadStorageMigrationSnapshot
 {
   public string OperationId { get; set; }
+  public string OperationKind { get; set; }
+  public string SelectionKind { get; set; }
   public string State { get; set; } = "idle";
   public string SourceDirectory { get; set; }
   public string TargetDirectory { get; set; }
@@ -15,4 +17,6 @@ public sealed class DownloadStorageMigrationSnapshot
   public string Message { get; set; }
   public bool IsDefault { get; set; }
   public string DefaultDirectory { get; set; }
+  public string CurrentLevelId { get; set; }
+  public string Phase { get; set; }
 }

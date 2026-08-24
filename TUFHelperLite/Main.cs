@@ -32,9 +32,11 @@ public sealed class Main
 
       Instance = new Main(modEntry);
       DownloadStorageSettingsStore.Initialize(modEntry.Path);
+      DownloadStorageIdentityService.Initialize();
       DownloadLibraryService.Initialize(modEntry.Path);
       DownloadStorageMigrationService.Initialize(modEntry.Path);
       LevelUpdateService.Initialize(modEntry.Path);
+      LevelUpdateCheckBatchService.Initialize(modEntry.Path);
       modEntry.OnToggle = OnToggle;
       modEntry.OnUnload = OnUnload;
       Instance.Enable();

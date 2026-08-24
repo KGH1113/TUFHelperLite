@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
+using System.Threading;
 using Newtonsoft.Json;
 using TUFHelperLite.Domain.Storage;
 using TUFHelperLite.Infrastructure.Downloads;
@@ -23,6 +24,7 @@ public static class DownloadStorageMigrationService
   private static string _journalPath;
   private static DownloadStorageMigrationSnapshot _snapshot = new();
   private static bool _workerRunning;
+  private static CancellationTokenSource _changeCancellation;
   private static Func<string, bool> _levelInUseProbe = IsDownloadedLevelInUse;
 
   public static bool IsMigrationActive
@@ -66,6 +68,75 @@ public static class DownloadStorageMigrationService
     return StartForTarget(target, useDefault);
   }
 
+  public static DownloadStorageMigrationSnapshot StartChange(string selectionToken, bool useDefault)
+  {
+    string target;
+    string selectionKind;
+    if (useDefault)
+    {
+      target = DownloadStorageSettingsStore.GetDefaultRoot();
+      try { target = ValidateChangeTarget(target, out selectionKind, true); }
+      catch (DownloadStorageMigrationException exception) { return Failure(exception.Code, exception.Message); }
+    }
+    else if (!DownloadFolderPickerCoordinator.TryConsumeSelection(selectionToken, out target, out selectionKind))
+    {
+      return Failure("selection_token_invalid", "The selected folder token is missing or expired.");
+    }
+
+    return StartChangeForTarget(target, useDefault);
+  }
+
+  internal static DownloadStorageMigrationSnapshot StartChangeForTarget(string target, bool allowMissing = false)
+  {
+    string selectionKind;
+    try
+    {
+      target = ValidateChangeTarget(target, out selectionKind, allowMissing);
+      EnsureCanStart(target);
+    }
+    catch (DownloadStorageMigrationException exception)
+    {
+      return Failure(exception.Code, exception.Message);
+    }
+    lock (Gate)
+    {
+      if (IsActiveState(_snapshot.State))
+        return Failure("storage_migration_in_progress", "A download storage operation is already running.");
+      _changeCancellation?.Dispose();
+      _changeCancellation = new CancellationTokenSource();
+      _snapshot = new DownloadStorageMigrationSnapshot
+      {
+        OperationId = Guid.NewGuid().ToString("N"),
+        OperationKind = selectionKind == "merge_reconnect" ? "merge_reconnect" : "migration",
+        SelectionKind = selectionKind,
+        State = "copying",
+        Phase = selectionKind == "merge_reconnect" ? "preflight" : "copying",
+        SourceDirectory = Path.GetFullPath(DownloadCachePaths.GetDownloadRoot()),
+        TargetDirectory = target,
+        Message = selectionKind == "merge_reconnect"
+          ? "Checking the existing download folder before reconnecting."
+          : "Preparing downloaded levels for migration."
+      };
+      ApplyLocationFields(_snapshot);
+      SaveJournalLocked();
+      QueueWorkerLocked();
+      return Clone(_snapshot);
+    }
+  }
+
+  public static DownloadStorageMigrationSnapshot CancelChange()
+  {
+    lock (Gate)
+    {
+      if (_snapshot.OperationKind != "merge_reconnect" || _snapshot.Phase is "switching" or "cleaning")
+        return Failure("storage_change_not_cancellable", "This storage operation can no longer be cancelled.");
+      if (!IsActiveState(_snapshot.State)) return Clone(_snapshot);
+      _changeCancellation?.Cancel();
+      _snapshot.Message = "Cancelling storage reconnection.";
+      return Clone(_snapshot);
+    }
+  }
+
   internal static DownloadStorageMigrationSnapshot StartForTarget(string target, bool allowMissing = false)
   {
     try
@@ -88,6 +159,8 @@ public static class DownloadStorageMigrationService
       _snapshot = new DownloadStorageMigrationSnapshot
       {
         OperationId = Guid.NewGuid().ToString("N"),
+        OperationKind = "migration",
+        SelectionKind = "migration",
         State = "copying",
         SourceDirectory = Path.GetFullPath(DownloadCachePaths.GetDownloadRoot()),
         TargetDirectory = target,
@@ -109,6 +182,11 @@ public static class DownloadStorageMigrationService
       _snapshot.ErrorCode = null;
       _snapshot.Message = "Retrying download storage migration.";
       _snapshot.State = _snapshot.State == "cleanup_pending" ? "cleaning" : "copying";
+      if (_snapshot.OperationKind == "merge_reconnect" && _snapshot.State == "copying")
+      {
+        _changeCancellation?.Dispose();
+        _changeCancellation = new CancellationTokenSource();
+      }
       SaveJournalLocked();
       QueueWorkerLocked();
       return Clone(_snapshot);
@@ -183,8 +261,65 @@ public static class DownloadStorageMigrationService
     return target;
   }
 
+  public static string ValidateChangeTarget(string directory, out string selectionKind, bool allowMissing = false)
+  {
+    selectionKind = "migration";
+    string target = ValidateTargetPath(directory, allowMissing);
+    bool hasLevels = false;
+    foreach (string entry in Directory.EnumerateFileSystemEntries(target))
+    {
+      if (DownloadStorageIdentityService.IsMarkerOrOsMetadata(entry)) continue;
+      if (!Directory.Exists(entry) || !DownloadCachePaths.TryParseTufCacheKey(Path.GetFileName(entry), out int id) ||
+          !DownloadLibraryService.IsValidDownloadedLevelDirectory(entry, id))
+        throw new DownloadStorageMigrationException("storage_target_unrecognized_content",
+          "The selected folder contains files that are not a TUFHelperLite download library.");
+      hasLevels = true;
+    }
+    selectionKind = hasLevels ? "merge_reconnect" : "migration";
+    return target;
+  }
+
+  private static string ValidateTargetPath(string directory, bool allowMissing)
+  {
+    if (string.IsNullOrWhiteSpace(directory))
+      throw new DownloadStorageMigrationException("storage_target_required", "Choose a TUFHelperLite download folder.");
+    string target;
+    try { target = Normalize(directory); }
+    catch (Exception exception) when (exception is ArgumentException or IOException or NotSupportedException)
+    {
+      throw new DownloadStorageMigrationException("storage_target_invalid", "The selected folder path is invalid.");
+    }
+    string source = Normalize(DownloadCachePaths.GetDownloadRoot());
+    string root = Normalize(Path.GetPathRoot(target));
+    if (PathsEqual(target, root))
+      throw new DownloadStorageMigrationException("storage_target_is_root", "A drive root cannot be used as the download folder.");
+    if (PathsEqual(source, target))
+      throw new DownloadStorageMigrationException("storage_target_unchanged", "The selected folder is already in use.");
+    if (IsInside(target, source) || IsInside(source, target))
+      throw new DownloadStorageMigrationException("storage_target_overlaps_source", "The new folder cannot contain or be inside the current folder.");
+    if (!Directory.Exists(target))
+    {
+      if (!allowMissing)
+        throw new DownloadStorageMigrationException("storage_target_missing", "The selected folder no longer exists.");
+      Directory.CreateDirectory(target);
+    }
+    try
+    {
+      string probe = Path.Combine(target, ".tufhelperlite-write-test-" + Guid.NewGuid().ToString("N"));
+      File.WriteAllText(probe, "test");
+      File.Delete(probe);
+    }
+    catch
+    {
+      throw new DownloadStorageMigrationException("storage_target_not_writable", "The selected folder is not writable.");
+    }
+    return target;
+  }
+
   private static void EnsureCanStart(string target)
   {
+    if (LevelUpdateCheckBatchService.IsActive)
+      throw new DownloadStorageMigrationException("downloaded_level_batch_check_in_progress", "Wait for the batch update check to finish.");
     if (LevelJobService.HasActiveJobs())
       throw new DownloadStorageMigrationException("download_jobs_active", "Wait for all downloads and level selections to finish.");
 
@@ -192,6 +327,9 @@ public static class DownloadStorageMigrationService
     if (_levelInUseProbe(source))
       throw new DownloadStorageMigrationException("downloaded_level_in_use",
         "Close the downloaded level or return to the main menu before moving the download folder.");
+    if (_levelInUseProbe(target))
+      throw new DownloadStorageMigrationException("downloaded_level_in_use",
+        "Close the level opened from the selected folder before reconnecting it.");
 
     long bytes = Directory.Exists(source)
       ? Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).Sum(path => new FileInfo(path).Length)
@@ -226,6 +364,18 @@ public static class DownloadStorageMigrationService
         return;
       }
 
+      if (work.OperationKind == "merge_reconnect")
+      {
+        if (PathsEqual(DownloadStorageSettingsStore.GetDownloadRoot(), work.TargetDirectory) &&
+            work.Phase is "switching" or "cleaning")
+        {
+          CleanupSource(work);
+          return;
+        }
+        MergeAndReconnect(work, _changeCancellation?.Token ?? CancellationToken.None);
+        return;
+      }
+
       CopyAndVerify(work);
       CutOverAndCleanup(work);
     }
@@ -244,8 +394,177 @@ public static class DownloadStorageMigrationService
     }
     finally
     {
-      lock (Gate) _workerRunning = false;
+      lock (Gate)
+      {
+        _workerRunning = false;
+        if (!IsActiveState(_snapshot.State))
+        {
+          _changeCancellation?.Dispose();
+          _changeCancellation = null;
+        }
+      }
     }
+  }
+
+  private static void MergeAndReconnect(DownloadStorageMigrationSnapshot work, CancellationToken token)
+  {
+    string planPath = _journalPath + ".merge-plan";
+    string temporaryPlan = planPath + ".tmp";
+    string stagingRoot = Path.Combine(work.TargetDirectory, ".tufhelperlite-merge-work-" + work.OperationId);
+    try
+    {
+      UpdatePhase("copying", "preflight", "Checking duplicate levels against the latest official files.");
+      using (StreamWriter plan = new(temporaryPlan, false))
+      {
+        if (Directory.Exists(work.SourceDirectory))
+        {
+          foreach (string sourceLevel in Directory.EnumerateDirectories(work.SourceDirectory, "tuf-*", SearchOption.TopDirectoryOnly))
+          {
+            token.ThrowIfCancellationRequested();
+            if (!DownloadCachePaths.TryParseTufCacheKey(Path.GetFileName(sourceLevel), out int id) ||
+                !DownloadLibraryService.IsValidDownloadedLevelDirectory(sourceLevel, id)) continue;
+            string targetLevel = Path.Combine(work.TargetDirectory, DownloadCachePaths.BuildTufCacheKey(id.ToString()));
+            string winner = !Directory.Exists(targetLevel)
+              ? "source"
+              : DownloadLibraryService.ResolveDuplicateWinner(id, sourceLevel, targetLevel, token);
+            plan.WriteLine(id + "|" + winner);
+          }
+        }
+      }
+      if (File.Exists(planPath)) File.Replace(temporaryPlan, planPath, null);
+      else File.Move(temporaryPlan, planPath);
+
+      DownloadStorageIdentityService.Ensure(work.TargetDirectory);
+      Directory.CreateDirectory(stagingRoot);
+      int filesTotal = CountMergeFiles(planPath, work.SourceDirectory);
+      int filesProcessed = 0;
+      long bytesProcessed = 0;
+      long bytesTotal = CountMergeBytes(planPath, work.SourceDirectory);
+      UpdateProgress("copying", 0, filesTotal, 0, bytesTotal, "Copying levels into the existing download folder.");
+      UpdatePhase("copying", "copying", "Copying levels into the existing download folder.");
+      foreach (string line in File.ReadLines(planPath))
+      {
+        token.ThrowIfCancellationRequested();
+        string[] parts = line.Split('|');
+        if (parts.Length != 2 || parts[1] != "source") continue;
+        string name = DownloadCachePaths.BuildTufCacheKey(parts[0]);
+        string sourceLevel = Path.Combine(work.SourceDirectory, name);
+        string stagedLevel = Path.Combine(stagingRoot, name);
+        CopyDirectoryVerified(sourceLevel, stagedLevel, token, ref filesProcessed, filesTotal,
+          ref bytesProcessed, bytesTotal);
+      }
+
+      token.ThrowIfCancellationRequested();
+      UpdatePhase("switching", "switching", "Activating the merged download library.");
+      foreach (string line in File.ReadLines(planPath))
+      {
+        string[] parts = line.Split('|');
+        if (parts.Length != 2 || parts[1] != "source") continue;
+        string name = DownloadCachePaths.BuildTufCacheKey(parts[0]);
+        string targetLevel = Path.Combine(work.TargetDirectory, name);
+        string stagedLevel = Path.Combine(stagingRoot, name);
+        string backup = Path.Combine(work.TargetDirectory, ".tufhelperlite-merge-backup-" + parts[0]);
+        lock (Gate)
+        {
+          _snapshot.CurrentLevelId = parts[0];
+          SaveJournalLocked();
+        }
+        if (Directory.Exists(backup) && Directory.Exists(targetLevel)) Directory.Delete(backup, true);
+        if (!Directory.Exists(stagedLevel)) continue;
+        if (Directory.Exists(targetLevel)) Directory.Move(targetLevel, backup);
+        Directory.Move(stagedLevel, targetLevel);
+        if (Directory.Exists(backup)) Directory.Delete(backup, true);
+      }
+
+      if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, true);
+      DownloadStorageSettingsStore.SetDownloadRoot(work.TargetDirectory);
+      DownloadLibraryService.NotifyStorageRootChanged();
+      UpdatePhase("cleaning", "cleaning", "Removing the previous download folder.");
+      CleanupSource(work);
+      TryDeleteFile(planPath);
+    }
+    catch (OperationCanceledException)
+    {
+      TryDeleteDirectory(stagingRoot);
+      TryDeleteFile(planPath);
+      TryDeleteFile(temporaryPlan);
+      lock (Gate)
+      {
+        _snapshot.State = "cancelled";
+        _snapshot.ErrorCode = null;
+        _snapshot.Message = "Storage reconnection was cancelled before activation.";
+        TryDeleteJournal();
+      }
+    }
+  }
+
+  private static int CountMergeFiles(string planPath, string sourceRoot)
+  {
+    int count = 0;
+    foreach (string line in File.ReadLines(planPath))
+    {
+      string[] parts = line.Split('|');
+      if (parts.Length == 2 && parts[1] == "source")
+        count += Directory.EnumerateFiles(Path.Combine(sourceRoot, DownloadCachePaths.BuildTufCacheKey(parts[0])), "*", SearchOption.AllDirectories).Count();
+    }
+    return count;
+  }
+
+  private static long CountMergeBytes(string planPath, string sourceRoot)
+  {
+    long total = 0;
+    foreach (string line in File.ReadLines(planPath))
+    {
+      string[] parts = line.Split('|');
+      if (parts.Length != 2 || parts[1] != "source") continue;
+      foreach (string file in Directory.EnumerateFiles(Path.Combine(sourceRoot, DownloadCachePaths.BuildTufCacheKey(parts[0])), "*", SearchOption.AllDirectories))
+        total = checked(total + new FileInfo(file).Length);
+    }
+    return total;
+  }
+
+  private static void CopyDirectoryVerified(string source, string target, CancellationToken token,
+    ref int filesProcessed, int filesTotal, ref long bytesProcessed, long bytesTotal)
+  {
+    foreach (string sourceFile in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+    {
+      token.ThrowIfCancellationRequested();
+      string targetFile = Path.Combine(target, Path.GetRelativePath(source, sourceFile));
+      Directory.CreateDirectory(Path.GetDirectoryName(targetFile));
+      if (!FilesMatch(sourceFile, targetFile))
+      {
+        string partial = targetFile + ".tufhelperlite-partial";
+        File.Copy(sourceFile, partial, true);
+        if (File.Exists(targetFile)) File.Delete(targetFile);
+        File.Move(partial, targetFile);
+      }
+      if (!FilesMatch(sourceFile, targetFile))
+        throw new DownloadStorageMigrationException("storage_verification_failed", "A merged file failed verification.");
+      filesProcessed++;
+      bytesProcessed += new FileInfo(sourceFile).Length;
+      UpdateProgress("copying", filesProcessed, filesTotal, bytesProcessed, bytesTotal, "Copying levels into the existing download folder.");
+    }
+  }
+
+  private static void UpdatePhase(string state, string phase, string message)
+  {
+    lock (Gate)
+    {
+      _snapshot.State = state;
+      _snapshot.Phase = phase;
+      _snapshot.Message = message;
+      SaveJournalLocked();
+    }
+  }
+
+  private static void TryDeleteDirectory(string path)
+  {
+    try { if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path)) Directory.Delete(path, true); } catch { }
+  }
+
+  private static void TryDeleteFile(string path)
+  {
+    try { if (!string.IsNullOrWhiteSpace(path) && File.Exists(path)) File.Delete(path); } catch { }
   }
 
   private static void CopyAndVerify(DownloadStorageMigrationSnapshot work)
@@ -448,6 +767,8 @@ public static class DownloadStorageMigrationService
   private static DownloadStorageMigrationSnapshot Clone(DownloadStorageMigrationSnapshot value) => new()
   {
     OperationId = value.OperationId,
+    OperationKind = value.OperationKind,
+    SelectionKind = value.SelectionKind,
     State = value.State,
     SourceDirectory = value.SourceDirectory,
     TargetDirectory = value.TargetDirectory,
@@ -459,7 +780,9 @@ public static class DownloadStorageMigrationService
     ErrorCode = value.ErrorCode,
     Message = value.Message,
     IsDefault = value.IsDefault,
-    DefaultDirectory = value.DefaultDirectory
+    DefaultDirectory = value.DefaultDirectory,
+    CurrentLevelId = value.CurrentLevelId,
+    Phase = value.Phase
   };
 
   private static string Normalize(string path)
