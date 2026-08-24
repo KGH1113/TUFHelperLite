@@ -93,7 +93,7 @@ The package command creates both `build/TUFHelperLite.zip` and
 `build/TUFHelperLite.zip.sha256`. Upload both files, without renaming them, to a
 stable GitHub release tagged `vX.Y.Z`; `X.Y.Z` must match `Info.json`.
 
-TUFHelperLite 0.1.5 uses a fixed launcher and versioned runtimes. The launcher
+TUFHelperLite 0.1.6 uses a fixed launcher and versioned runtimes. The launcher
 checks the latest stable GitHub release before loading the core, verifies the
 ZIP and checksum, and can activate a newer runtime in the same game launch.
 Network or verification failures leave the current runtime untouched.
@@ -110,6 +110,15 @@ The published 0.1.3 updater cannot complete this transition. Users who manually
 installed 0.1.3 must manually reinstall TUFHelperLite 0.1.4 once. Releases after
 0.1.4 are handled by the fixed launcher without another manual reinstall. The
 core does not own a separate IPC compatibility modal or placeholder namespace.
+
+### 0.1.6 highlights
+
+- Check every downloaded level for updates in one bounded background batch,
+  while preserving per-level progress and failure details for the web client.
+- Reconnect an existing managed download folder after reinstalling the mod by
+  selecting it through the same folder picker used for storage migration.
+- Mark managed storage with a small identity file so reconnect remains explicit
+  and does not adopt an arbitrary non-empty folder.
 
 ### 0.1.5 highlights
 
