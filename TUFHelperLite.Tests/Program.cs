@@ -335,6 +335,10 @@ internal static class Program
         Creator = "Fetched Creator " + id
       });
       string downloadRoot = DownloadStorageSettingsStore.GetDownloadRoot();
+      DownloadedLevelPage empty = DownloadLibraryService.GetPage(null, "next", 20);
+      CheckLong("empty library page start index", 0, empty.StartIndex);
+      CheckLong("empty library page total count", 0, empty.TotalCount);
+      CheckLong("empty library page size", 0, empty.Items.Length);
       const long baseTimestamp = 1_700_000_000_000;
       for (int id = 1; id <= 65; id++)
       {
@@ -368,6 +372,8 @@ internal static class Program
       DownloadedLevelPage first = DownloadLibraryService.GetPage(null, "next", 20);
       CheckLong("download library observed candidate bound", 21, DownloadLibraryService.MaximumCandidateCountObservedForTests);
       CheckLong("first library page size", 20, first.Items.Length);
+      CheckLong("first library page start index", 0, first.StartIndex);
+      CheckLong("first library page total count", 65, first.TotalCount);
       CheckLong("first library page newest id", 65, first.Items[0].Id);
       CheckLong("download library timestamp tie-break", 64, first.Items[1].Id);
       CheckLong("first library page last id", 46, first.Items[19].Id);
@@ -375,12 +381,17 @@ internal static class Program
       CheckFalse("first library page has previous", first.HasPrevious);
 
       DownloadedLevelPage second = DownloadLibraryService.GetPage(first.NextCursor, "next", 20);
+      CheckLong("second library page start index", 20, second.StartIndex);
+      CheckLong("second library page total count", 65, second.TotalCount);
       CheckLong("second library page newest id", 45, second.Items[0].Id);
       CheckLong("second library page last id", 26, second.Items[19].Id);
       CheckTrue("second library page has previous", second.HasPrevious);
 
       DownloadedLevelPage third = DownloadLibraryService.GetPage(second.NextCursor, "next", 20);
       DownloadedLevelPage fourth = DownloadLibraryService.GetPage(third.NextCursor, "next", 20);
+      CheckLong("third library page start index", 40, third.StartIndex);
+      CheckLong("last library page start index", 60, fourth.StartIndex);
+      CheckLong("last library page total count", 65, fourth.TotalCount);
       CheckLong("last library page size", 5, fourth.Items.Length);
       CheckLong("last library page final id", 1, fourth.Items[4].Id);
       CheckString("partial metadata is fetched before response", "ready", fourth.Items[4].MetadataState);
@@ -389,8 +400,26 @@ internal static class Program
       CheckFalse("last library page has next", fourth.HasNext);
 
       DownloadedLevelPage previous = DownloadLibraryService.GetPage(fourth.PreviousCursor, "previous", 20);
+      CheckLong("previous library page start index", 40, previous.StartIndex);
+      CheckLong("previous library page total count", 65, previous.TotalCount);
       CheckLong("previous library page newest id", 25, previous.Items[0].Id);
       CheckLong("previous library page last id", 6, previous.Items[19].Id);
+
+      DownloadedLevelPage one = DownloadLibraryService.GetPage(null, "next", 1);
+      CheckLong("single item page start index", 0, one.StartIndex);
+      CheckLong("single item page size", 1, one.Items.Length);
+      DownloadedLevelPage fifty = DownloadLibraryService.GetPage(null, "next", 50);
+      CheckLong("maximum item page size", 50, fifty.Items.Length);
+      CheckLong("maximum item page total count", 65, fifty.TotalCount);
+      try
+      {
+        DownloadLibraryService.GetPage("not-a-cursor", "next", 20);
+        Failures.Add("invalid download library cursor rejected: expected exception");
+      }
+      catch (InvalidOperationException exception)
+      {
+        CheckString("invalid download library cursor error", "download_library_cursor_invalid", exception.Message);
+      }
 
       string newDirectory = Path.Combine(downloadRoot, "tuf-66");
       string newLevel = CreateLevel(downloadRoot, "tuf-66", "chart.adofai");

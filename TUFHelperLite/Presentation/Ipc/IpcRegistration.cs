@@ -105,6 +105,7 @@ public static class IpcRegistration
       {
         "download-storage-migration-v1",
         "downloaded-level-library-v1",
+        "downloaded-level-positioned-pages-v1",
         "downloaded-level-update-v1",
         "downloaded-level-batch-update-check-v1",
         "downloaded-level-batch-update-v1",

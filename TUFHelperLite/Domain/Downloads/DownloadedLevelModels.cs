@@ -31,6 +31,8 @@ public sealed class DownloadedLevelUpdateDescriptor
 public sealed class DownloadedLevelPage
 {
   public long Revision { get; set; }
+  public int StartIndex { get; set; }
+  public int TotalCount { get; set; }
   public DownloadedLevelItem[] Items { get; set; }
   public string NextCursor { get; set; }
   public string PreviousCursor { get; set; }

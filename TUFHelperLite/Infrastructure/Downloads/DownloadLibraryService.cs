@@ -20,7 +20,7 @@ public static class DownloadLibraryService
   internal const string ManifestFileName = ".tufhelperlite-level.json";
   private const int DefaultPageSize = 20;
   private const int MaximumPageSize = 50;
-  private const int CursorVersion = 1;
+  private const int CursorVersion = 2;
   private const int SummaryVersion = 1;
   private const int MetadataFetchConcurrency = 4;
   private static readonly object Gate = new();
@@ -77,7 +77,7 @@ public static class DownloadLibraryService
       throw new InvalidOperationException("download_library_cursor_stale");
 
     List<Candidate> candidates = SelectCandidates(
-      DownloadCachePaths.GetDownloadRoot(), cursor, direction, limit + 1);
+      DownloadCachePaths.GetDownloadRoot(), cursor, direction, limit + 1, out int totalCount);
     bool hasExtra = candidates.Count > limit;
 
     if (hasExtra)
@@ -87,15 +87,22 @@ public static class DownloadLibraryService
     }
 
     DownloadedLevelItem[] items = CreateItems(candidates);
-    bool hasPrevious = cursor != null && direction == "next" || direction == "previous" && hasExtra;
-    bool hasNext = direction == "next" ? hasExtra : cursor != null;
+    int startIndex = cursor == null
+      ? 0
+      : direction == "previous"
+        ? Math.Max(0, cursor.Index - items.Length)
+        : Math.Min(totalCount, cursor.Index + 1);
+    bool hasPrevious = startIndex > 0;
+    bool hasNext = startIndex + items.Length < totalCount;
 
     return new DownloadedLevelPage
     {
       Revision = revision,
+      StartIndex = startIndex,
+      TotalCount = totalCount,
       Items = items,
-      PreviousCursor = items.Length > 0 ? EncodeCursor(revision, items[0]) : null,
-      NextCursor = items.Length > 0 ? EncodeCursor(revision, items[items.Length - 1]) : null,
+      PreviousCursor = items.Length > 0 ? EncodeCursor(revision, items[0], startIndex) : null,
+      NextCursor = items.Length > 0 ? EncodeCursor(revision, items[items.Length - 1], startIndex + items.Length - 1) : null,
       HasPrevious = hasPrevious,
       HasNext = hasNext
     };
@@ -441,15 +448,18 @@ public static class DownloadLibraryService
     string downloadRoot,
     CursorToken cursor,
     string direction,
-    int capacity)
+    int capacity,
+    out int totalCount)
   {
     List<Candidate> selected = new(capacity);
+    totalCount = 0;
     if (!Directory.Exists(downloadRoot)) return selected;
 
     foreach (string directory in Directory.EnumerateDirectories(downloadRoot, "tuf-*", SearchOption.TopDirectoryOnly))
     {
       if (!DownloadCachePaths.TryParseTufCacheKey(Path.GetFileName(directory), out int id)) continue;
       if (!HasLevelFile(directory)) continue;
+      totalCount++;
       DownloadedLevelManifest manifest = ReadManifest(Path.Combine(directory, ManifestFileName));
       long downloadedAt = manifest?.DownloadedAtUnixMs > 0
         ? manifest.DownloadedAtUnixMs
@@ -723,12 +733,13 @@ public static class DownloadLibraryService
     }
   }
 
-  private static string EncodeCursor(long revision, DownloadedLevelItem item)
+  private static string EncodeCursor(long revision, DownloadedLevelItem item, int index)
   {
     CursorToken cursor = new()
     {
       Version = CursorVersion,
       Revision = revision,
+      Index = index,
       DownloadedAtUnixMs = item.DownloadedAtUnixMs,
       Id = item.Id
     };
@@ -742,7 +753,7 @@ public static class DownloadLibraryService
     {
       CursorToken cursor = JsonConvert.DeserializeObject<CursorToken>(
         Encoding.UTF8.GetString(Convert.FromBase64String(value)));
-      if (cursor == null || cursor.Version != CursorVersion || cursor.Id <= 0 || cursor.DownloadedAtUnixMs <= 0)
+      if (cursor == null || cursor.Version != CursorVersion || cursor.Index < 0 || cursor.Id <= 0 || cursor.DownloadedAtUnixMs <= 0)
         throw new InvalidOperationException("download_library_cursor_invalid");
       return cursor;
     }
@@ -856,6 +867,7 @@ public static class DownloadLibraryService
   {
     public int Version { get; set; }
     public long Revision { get; set; }
+    public int Index { get; set; }
     public long DownloadedAtUnixMs { get; set; }
     public int Id { get; set; }
   }
