@@ -144,6 +144,28 @@ public static class LevelJobService
     return true;
   }
 
+  internal static bool TryStartBatchUpdate(string id, out DownloadJobSnapshot snapshot)
+  {
+    EnsureStorageAvailable();
+    string normalizedId = DownloadCachePaths.NormalizeLevelId(id);
+    if (!int.TryParse(normalizedId, out int parsedId) || parsedId <= 0)
+      throw new ArgumentException("A valid level id is required.", nameof(id));
+    string cacheKey = DownloadCachePaths.BuildTufCacheKey(normalizedId);
+    DownloadJob job;
+    lock (Lock)
+    {
+      if (Jobs.Values.Any(candidate => candidate.CacheKey == cacheKey && !candidate.IsDone))
+      {
+        snapshot = null;
+        return false;
+      }
+      job = Add("level.update", normalizedId, null, cacheKey, false);
+    }
+    Enqueue(job, () => LevelUpdateService.Update(parsedId, job));
+    snapshot = job.Snapshot();
+    return true;
+  }
+
   private static DownloadJobSnapshot StartUpdateCheckCore(string id)
   {
     EnsureStorageAvailable();
@@ -202,11 +224,17 @@ public static class LevelJobService
     {
       return Jobs.Values
         .Select(job => job.Snapshot())
+        .Where(ShouldDisplayInGame)
         .Where(snapshot => !snapshot.Done || IsUndismissedDiskSpaceFailure(snapshot))
         .OrderBy(snapshot => IsUndismissedDiskSpaceFailure(snapshot) ? 0 : snapshot.Status == "waiting_selection" ? 1 : snapshot.Status == "running" ? 2 : 3)
         .ThenBy(snapshot => snapshot.CreatedAtUnixMs)
         .FirstOrDefault();
     }
+  }
+
+  internal static bool ShouldDisplayInGame(DownloadJobSnapshot snapshot)
+  {
+    return snapshot != null && snapshot.Kind is not "level.update" and not "level.update-check";
   }
 
   internal static bool DismissModal(string jobId)

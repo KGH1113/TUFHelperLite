@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using Newtonsoft.Json;
@@ -419,7 +420,7 @@ internal static class Program
       CheckString("available update persists in item", "update_available", available.UpdateState);
       CheckString("available update persists after reload", "update_available", DownloadLibraryService.GetItem(66).UpdateState);
       DownloadedLevelItem current = DownloadLibraryService.RecordUpdateCheck(66, updateMetadata, null, true);
-      CheckString("matching update clears availability", "idle", current.UpdateState);
+      CheckString("matching update persists up-to-date state", "up_to_date", current.UpdateState);
       CheckString("matching update records remote revision", "file-v2", DownloadLibraryService.GetUpdateDescriptor(66).DownloadedFileId);
       try
       {
@@ -451,6 +452,18 @@ internal static class Program
       DownloadStorageMigrationService.Initialize(installRoot);
       DownloadStorageMigrationService.SetLevelInUseProbeForTests(_ => false);
       LevelUpdateService.Initialize(installRoot);
+      CheckFalse("update check is hidden from in-game download UI", LevelJobService.ShouldDisplayInGame(new DownloadJobSnapshot
+      {
+        Kind = "level.update-check"
+      }));
+      CheckFalse("level update is hidden from in-game download UI", LevelJobService.ShouldDisplayInGame(new DownloadJobSnapshot
+      {
+        Kind = "level.update"
+      }));
+      CheckTrue("normal download remains visible in-game", LevelJobService.ShouldDisplayInGame(new DownloadJobSnapshot
+      {
+        Kind = "level.download"
+      }));
       string root = DownloadCachePaths.GetDownloadRoot();
       string directory = Path.Combine(root, "tuf-100");
       string levelPath = CreateLevel(root, "tuf-100", "chart.adofai");
@@ -587,6 +600,38 @@ internal static class Program
       CheckString("unknown revision detects changed payload", "update_available", changedCheck.Snapshot().UpdateState);
       CheckString("changed legacy availability persists", "update_available", DownloadLibraryService.GetItem(102).UpdateState);
 
+      LevelUpdateService.SetDependenciesForTests(
+        id => id switch
+        {
+          "100" => available,
+          "101" => new TUFHelperLite.Infrastructure.Tuforums.TufLevelInfo
+          {
+            Id = 101,
+            DiffId = 12,
+            Song = "Legacy Level",
+            Artist = "Artist",
+            Creator = "Creator",
+            FileId = "legacy-file-v2",
+            DownloadLink = "https://cdn.example/101.zip"
+          },
+          _ => legacyRemote
+        },
+        (url, staging, token, progress) =>
+        {
+          Directory.CreateDirectory(staging);
+          string stagedLevel = Path.Combine(staging, "chart.adofai");
+          File.WriteAllText(stagedLevel, "legacy payload");
+          return new LevelDownloadResult
+          {
+            SourceUrl = url,
+            DirectUrl = url,
+            Directory = staging,
+            SelectedLevelPath = stagedLevel,
+            LevelPaths = new List<string> { stagedLevel },
+            FromCache = false
+          };
+        });
+
       LevelUpdateCheckBatchService.Initialize(installRoot);
       LevelUpdateCheckBatchSnapshot batchStarted = LevelUpdateCheckBatchService.Start();
       CheckString("batch update check starts preparing", "preparing", batchStarted.State);
@@ -594,8 +639,66 @@ internal static class Program
       while (LevelUpdateCheckBatchService.IsActive && DateTime.UtcNow < batchDeadline) Thread.Sleep(20);
       LevelUpdateCheckBatchSnapshot batchCompleted = LevelUpdateCheckBatchService.GetStatus();
       CheckString("batch update check completes", "completed", batchCompleted.State);
+      CheckString("batch update check operation kind", "check", batchCompleted.OperationKind);
       CheckLong("batch update check snapshots all current levels", 3, batchCompleted.LevelsTotal);
       CheckLong("batch update check processes snapshot", 3, batchCompleted.LevelsProcessed);
+      CheckString("batch up-to-date state survives reload", "up_to_date", DownloadLibraryService.GetItem(101).UpdateState);
+
+      LevelUpdateCheckBatchSnapshot updateBatchStarted = LevelUpdateCheckBatchService.StartUpdateAll();
+      CheckString("batch update starts preparing", "preparing", updateBatchStarted.State);
+      CheckString("batch update operation kind", "update", updateBatchStarted.OperationKind);
+      DateTime updateBatchDeadline = DateTime.UtcNow.AddSeconds(10);
+      while (LevelUpdateCheckBatchService.IsActive && DateTime.UtcNow < updateBatchDeadline) Thread.Sleep(20);
+      LevelUpdateCheckBatchSnapshot updateBatchCompleted = LevelUpdateCheckBatchService.GetStatus();
+      CheckString("batch update completes", "completed", updateBatchCompleted.State);
+      CheckLong("batch update processes available levels", updateBatchCompleted.LevelsTotal, updateBatchCompleted.LevelsProcessed);
+      CheckLong("batch update succeeds for every candidate", updateBatchCompleted.LevelsTotal, updateBatchCompleted.LevelsUpdated);
+      CheckLong("batch update has no failures", 0, updateBatchCompleted.LevelsFailed);
+      CheckString("batch-updated state survives reload", "up_to_date", DownloadLibraryService.GetItem(102).UpdateState);
+
+      TUFHelperLite.Infrastructure.Tuforums.TufLevelInfo BatchRemote(int id) => new()
+      {
+        Id = id,
+        DiffId = 18,
+        Song = "Batch Update " + id,
+        Artist = "Artist",
+        Creator = "Creator",
+        FileId = "batch-file-" + id,
+        DownloadLink = "https://cdn.example/batch-" + id + ".zip"
+      };
+      DownloadLibraryService.RecordUpdateCheck(100, BatchRemote(100), "batch-hash-100", false);
+      DownloadLibraryService.RecordUpdateCheck(102, BatchRemote(102), "batch-hash-102", false);
+      string availableSnapshotPath = Path.Combine(installRoot, "available-update-test.ids");
+      CheckLong("available update snapshot contains only candidates", 2,
+        DownloadLibraryService.WriteAvailableUpdateIdSnapshot(availableSnapshotPath, CancellationToken.None));
+      LevelUpdateService.SetDependenciesForTests(
+        id => BatchRemote(int.Parse(id, CultureInfo.InvariantCulture)),
+        (url, staging, token, progress) =>
+        {
+          Directory.CreateDirectory(staging);
+          string stagedLevel = Path.Combine(staging, "chart.adofai");
+          File.WriteAllText(stagedLevel, "updated payload for " + url);
+          return new LevelDownloadResult
+          {
+            SourceUrl = url,
+            DirectUrl = url,
+            Directory = staging,
+            SelectedLevelPath = stagedLevel,
+            LevelPaths = new List<string> { stagedLevel },
+            FromCache = false
+          };
+        });
+      DownloadStorageMigrationService.SetLevelInUseProbeForTests(path =>
+        string.Equals(Path.GetFileName(path), "tuf-100", StringComparison.Ordinal));
+      LevelUpdateCheckBatchService.StartUpdateAll();
+      DateTime partialBatchDeadline = DateTime.UtcNow.AddSeconds(10);
+      while (LevelUpdateCheckBatchService.IsActive && DateTime.UtcNow < partialBatchDeadline) Thread.Sleep(20);
+      LevelUpdateCheckBatchSnapshot partialBatch = LevelUpdateCheckBatchService.GetStatus();
+      CheckString("batch update continues after one failure", "completed", partialBatch.State);
+      CheckLong("batch update counts one success", 1, partialBatch.LevelsUpdated);
+      CheckLong("batch update counts one failure", 1, partialBatch.LevelsFailed);
+      CheckString("failed batch candidate remains available", "update_available", DownloadLibraryService.GetItem(100).UpdateState);
+      CheckString("successful batch candidate becomes current", "up_to_date", DownloadLibraryService.GetItem(102).UpdateState);
 
       DownloadStorageMigrationService.SetLevelInUseProbeForTests(_ => true);
       try

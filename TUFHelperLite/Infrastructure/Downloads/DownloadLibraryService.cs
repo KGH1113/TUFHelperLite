@@ -148,6 +148,33 @@ public static class DownloadLibraryService
     return count;
   }
 
+  public static int WriteAvailableUpdateIdSnapshot(string path, System.Threading.CancellationToken token)
+  {
+    EnsureStorageAvailable();
+    EnsureInitialized();
+    string temporary = path + ".tmp";
+    int count = 0;
+    using (StreamWriter writer = new(temporary, false, new UTF8Encoding(false)))
+    {
+      string root = DownloadCachePaths.GetDownloadRoot();
+      if (Directory.Exists(root))
+      {
+        foreach (string directory in Directory.EnumerateDirectories(root, "tuf-*", SearchOption.TopDirectoryOnly))
+        {
+          token.ThrowIfCancellationRequested();
+          if (!DownloadCachePaths.TryParseTufCacheKey(Path.GetFileName(directory), out int id) || !HasLevelFile(directory)) continue;
+          DownloadedLevelManifest manifest = ReadManifest(Path.Combine(directory, ManifestFileName));
+          if (manifest?.Id != id || !HasAvailableUpdate(manifest)) continue;
+          writer.WriteLine(id.ToString(CultureInfo.InvariantCulture));
+          count++;
+        }
+      }
+    }
+    if (File.Exists(path)) File.Replace(temporary, path, null);
+    else File.Move(temporary, path);
+    return count;
+  }
+
   public static void RecordDownload(LevelDownloadResult result, TufLevelInfo level, string levelId)
   {
     if (result == null || string.IsNullOrWhiteSpace(result.Directory)) return;
@@ -554,7 +581,9 @@ public static class DownloadLibraryService
     DownloadedAtUnixMs = manifest.DownloadedAtUnixMs,
     DownloadedAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(manifest.DownloadedAtUnixMs).UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
     MetadataState = manifest.MetadataState,
-    UpdateState = HasAvailableUpdate(manifest) ? "update_available" : "idle"
+    UpdateState = HasAvailableUpdate(manifest)
+      ? "update_available"
+      : string.IsNullOrWhiteSpace(manifest.LastUpdateCheckedAtUtc) ? "idle" : "up_to_date"
   };
 
   private static DownloadedLevelUpdateDescriptor ToUpdateDescriptor(DownloadedLevelManifest manifest, string directory) => new()

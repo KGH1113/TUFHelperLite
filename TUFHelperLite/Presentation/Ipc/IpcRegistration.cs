@@ -59,6 +59,9 @@ public static class IpcRegistration
     ipc.Register("level.update.check-all.start", UpdateCheckAllStart);
     ipc.Register("level.update.check-all.status", UpdateCheckAllStatus);
     ipc.Register("level.update.check-all.cancel", UpdateCheckAllCancel);
+    ipc.Register("level.update.all.start", UpdateAllStart);
+    ipc.Register("level.update.all.status", UpdateAllStatus);
+    ipc.Register("level.update.all.cancel", UpdateAllCancel);
     ipc.Register("level.cancel", Cancel);
     ipc.Register("level.select", Select);
     ipc.Register("storage.get", StorageGet);
@@ -104,6 +107,7 @@ public static class IpcRegistration
         "downloaded-level-library-v1",
         "downloaded-level-update-v1",
         "downloaded-level-batch-update-check-v1",
+        "downloaded-level-batch-update-v1",
         "download-storage-reconnect-v1"
       }
     };
@@ -187,6 +191,12 @@ public static class IpcRegistration
   private static object UpdateCheckAllStatus(IpcRequest request) => LevelUpdateCheckBatchService.GetStatus();
 
   private static object UpdateCheckAllCancel(IpcRequest request) => LevelUpdateCheckBatchService.Cancel();
+
+  private static object UpdateAllStart(IpcRequest request) => LevelUpdateCheckBatchService.StartUpdateAll();
+
+  private static object UpdateAllStatus(IpcRequest request) => LevelUpdateCheckBatchService.GetStatus();
+
+  private static object UpdateAllCancel(IpcRequest request) => LevelUpdateCheckBatchService.Cancel();
 
   private static object Cancel(IpcRequest request)
   {

@@ -19,7 +19,7 @@ public static class LevelUpdateCheckBatchService
 
   public static bool IsActive
   {
-    get { lock (Gate) return _snapshot.State is "preparing" or "checking" or "cancelling"; }
+    get { lock (Gate) return IsActiveState(_snapshot.State); }
   }
 
   public static void Initialize(string installPath)
@@ -29,7 +29,11 @@ public static class LevelUpdateCheckBatchService
     lock (Gate) _snapshot = Idle();
   }
 
-  public static LevelUpdateCheckBatchSnapshot Start()
+  public static LevelUpdateCheckBatchSnapshot Start() => StartOperation("check");
+
+  public static LevelUpdateCheckBatchSnapshot StartUpdateAll() => StartOperation("update");
+
+  private static LevelUpdateCheckBatchSnapshot StartOperation(string operationKind)
   {
     lock (Gate)
     {
@@ -39,12 +43,17 @@ public static class LevelUpdateCheckBatchService
       _snapshot = new LevelUpdateCheckBatchSnapshot
       {
         State = "preparing",
+        OperationKind = operationKind,
         OperationId = Guid.NewGuid().ToString("N"),
-        Message = "Preparing downloaded levels."
+        Message = operationKind == "update" ? "Preparing available updates." : "Preparing downloaded levels."
       };
       _cancellation = new CancellationTokenSource();
       _ownedJobId = null;
-      Task.Run(() => Run(_snapshot.OperationId, _cancellation.Token));
+      Task.Run(() =>
+      {
+        if (operationKind == "update") RunUpdates(_snapshot.OperationId, _cancellation.Token);
+        else RunChecks(_snapshot.OperationId, _cancellation.Token);
+      });
       return Clone(_snapshot);
     }
   }
@@ -60,14 +69,14 @@ public static class LevelUpdateCheckBatchService
     {
       if (!IsActiveState(_snapshot.State)) return Clone(_snapshot);
       _snapshot.State = "cancelling";
-      _snapshot.Message = "Cancelling update check.";
+      _snapshot.Message = _snapshot.OperationKind == "update" ? "Cancelling updates." : "Cancelling update check.";
       _cancellation?.Cancel();
       if (!string.IsNullOrWhiteSpace(_ownedJobId)) LevelJobService.Cancel(_ownedJobId);
       return Clone(_snapshot);
     }
   }
 
-  private static void Run(string operationId, CancellationToken token)
+  private static void RunChecks(string operationId, CancellationToken token)
   {
     try
     {
@@ -121,6 +130,55 @@ public static class LevelUpdateCheckBatchService
     }
   }
 
+  private static void RunUpdates(string operationId, CancellationToken token)
+  {
+    try
+    {
+      int total = DownloadLibraryService.WriteAvailableUpdateIdSnapshot(_snapshotPath, token);
+      Update(snapshot =>
+      {
+        snapshot.State = "updating";
+        snapshot.LevelsTotal = total;
+        snapshot.UpdatesAvailable = total;
+        snapshot.Message = total == 0 ? "There are no available updates." : "Updating downloaded levels.";
+      });
+      if (total == 0)
+      {
+        Complete("completed", "All downloaded levels are up to date.");
+        return;
+      }
+
+      using StreamReader reader = new(_snapshotPath);
+      string line;
+      while ((line = reader.ReadLine()) != null)
+      {
+        token.ThrowIfCancellationRequested();
+        if (!int.TryParse(line, NumberStyles.None, CultureInfo.InvariantCulture, out int id) || id <= 0) continue;
+        ProcessUpdate(id, token);
+      }
+
+      LevelUpdateCheckBatchSnapshot result = GetStatus();
+      Complete("completed", result.LevelsFailed > 0
+        ? $"Updated {result.LevelsUpdated} levels; {result.LevelsFailed} failed."
+        : $"Updated {result.LevelsUpdated} levels.");
+    }
+    catch (OperationCanceledException)
+    {
+      Complete("cancelled", "Level updates cancelled.");
+    }
+    catch (Exception exception)
+    {
+      Complete("failed", exception.Message, exception is DownloadStorageMigrationException migration
+        ? migration.Code
+        : "downloaded_level_batch_update_failed");
+      Main.Instance?.LogException(exception);
+    }
+    finally
+    {
+      FinishOperation();
+    }
+  }
+
   private static void ProcessLevel(int id, CancellationToken token)
   {
     DownloadJobSnapshot job = null;
@@ -169,6 +227,53 @@ public static class LevelUpdateCheckBatchService
     });
   }
 
+  private static void ProcessUpdate(int id, CancellationToken token)
+  {
+    DownloadJobSnapshot job = null;
+    while (job == null)
+    {
+      token.ThrowIfCancellationRequested();
+      if (DownloadStorageMigrationService.IsMigrationActive)
+        throw new DownloadStorageMigrationException("storage_migration_in_progress", "The storage root changed during the update operation.");
+      if (!LevelJobService.TryStartBatchUpdate(id.ToString(CultureInfo.InvariantCulture), out job))
+      {
+        Thread.Sleep(50);
+      }
+    }
+
+    lock (Gate) _ownedJobId = job.JobId;
+    Update(snapshot =>
+    {
+      snapshot.CurrentLevelId = id.ToString(CultureInfo.InvariantCulture);
+      snapshot.CurrentStage = job.Stage;
+      snapshot.CurrentProgress = job.Progress;
+    });
+
+    while (!job.Done)
+    {
+      token.ThrowIfCancellationRequested();
+      Thread.Sleep(100);
+      job = LevelJobService.Get(job.JobId);
+      if (job == null) throw new InvalidOperationException("The level-update job disappeared.");
+      DownloadJobSnapshot current = job;
+      Update(snapshot =>
+      {
+        snapshot.CurrentStage = current.Stage;
+        snapshot.CurrentProgress = current.Progress;
+      });
+    }
+
+    lock (Gate) _ownedJobId = null;
+    Update(snapshot =>
+    {
+      snapshot.LevelsProcessed++;
+      if (job.Status == "completed" && job.UpdateState == "up_to_date") snapshot.LevelsUpdated++;
+      else snapshot.LevelsFailed++;
+      snapshot.CurrentStage = job.Stage;
+      snapshot.CurrentProgress = 1;
+    });
+  }
+
   private static void Complete(string state, string message, string errorCode = null)
   {
     Update(snapshot =>
@@ -187,7 +292,18 @@ public static class LevelUpdateCheckBatchService
     lock (Gate) action(_snapshot);
   }
 
-  private static bool IsActiveState(string state) => state is "preparing" or "checking" or "cancelling";
+  private static void FinishOperation()
+  {
+    lock (Gate)
+    {
+      _ownedJobId = null;
+      _cancellation?.Dispose();
+      _cancellation = null;
+    }
+    TryDeleteSnapshot();
+  }
+
+  private static bool IsActiveState(string state) => state is "preparing" or "checking" or "updating" or "cancelling";
 
   private static LevelUpdateCheckBatchSnapshot Idle() => new()
   {
@@ -205,6 +321,7 @@ public static class LevelUpdateCheckBatchService
   private static LevelUpdateCheckBatchSnapshot Clone(LevelUpdateCheckBatchSnapshot value) => new()
   {
     State = value.State,
+    OperationKind = value.OperationKind,
     OperationId = value.OperationId,
     CurrentLevelId = value.CurrentLevelId,
     CurrentStage = value.CurrentStage,
@@ -213,6 +330,7 @@ public static class LevelUpdateCheckBatchService
     LevelsTotal = value.LevelsTotal,
     UpdatesAvailable = value.UpdatesAvailable,
     LevelsUpToDate = value.LevelsUpToDate,
+    LevelsUpdated = value.LevelsUpdated,
     LevelsFailed = value.LevelsFailed,
     ErrorCode = value.ErrorCode,
     Message = value.Message
