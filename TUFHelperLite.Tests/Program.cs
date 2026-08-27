@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using TUFHelperLite.Domain.Errors;
 using TUFHelperLite.Domain.Downloads;
 using TUFHelperLite.Domain.Jobs;
@@ -473,9 +474,11 @@ internal static class Program
   private static void RunLevelUpdateTests()
   {
     string installRoot = Path.Combine(Path.GetTempPath(), "tufhelperlite-update-tests-" + Guid.NewGuid().ToString("N"));
+    DateTimeOffset testNow = DateTimeOffset.Parse("2026-08-27T00:00:00Z", CultureInfo.InvariantCulture);
     Directory.CreateDirectory(installRoot);
     try
     {
+      DownloadLibraryService.SetUtcNowProviderForTests(() => testNow);
       DownloadStorageSettingsStore.Initialize(installRoot);
       DownloadLibraryService.Initialize(installRoot);
       DownloadStorageMigrationService.Initialize(installRoot);
@@ -561,6 +564,9 @@ internal static class Program
       DownloadedLevelUpdateDescriptor after = DownloadLibraryService.GetUpdateDescriptor(100);
       DownloadLibrarySummary summaryAfter = DownloadLibraryService.GetSummary();
       CheckString("level update job completes up to date", "up_to_date", completed.UpdateState);
+      CheckTrue("level update job includes state expiry", DateTimeOffset.TryParse(
+        completed.UpdateStateExpiresAtUtc, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTimeOffset completedExpiry));
+      CheckLong("level update job expiry is one hour", testNow.AddHours(1).ToUnixTimeMilliseconds(), completedExpiry.ToUnixTimeMilliseconds());
       CheckLong("level update downloads staged payload once", 1, stagingDownloads);
       CheckString("level update activates new payload", "new payload with a different size", File.ReadAllText(Path.Combine(directory, "chart.adofai")));
       CheckString("level update records new revision", "file-v2", after.DownloadedFileId);
@@ -609,7 +615,24 @@ internal static class Program
       DownloadJob legacyCheck = new("level.update-check", "101", null, "tuf-101", false);
       LevelUpdateService.Check(101, legacyCheck);
       CheckString("unknown revision compares equal payload", "up_to_date", legacyCheck.Snapshot().UpdateState);
+      CheckTrue("update check job includes state expiry", !string.IsNullOrWhiteSpace(legacyCheck.Snapshot().UpdateStateExpiresAtUtc));
       CheckString("equal legacy payload records remote revision", "legacy-file-v2", DownloadLibraryService.GetUpdateDescriptor(101).DownloadedFileId);
+
+      testNow = testNow.AddMinutes(59).AddSeconds(59);
+      CheckString("update check remains fresh before one hour", "up_to_date", DownloadLibraryService.GetItem(101).UpdateState);
+      testNow = testNow.AddSeconds(1);
+      DownloadedLevelItem expired = DownloadLibraryService.GetItem(101);
+      CheckString("update check expires at exactly one hour", "idle", expired.UpdateState);
+      CheckString("expired update check omits expiry", null, expired.UpdateStateExpiresAtUtc);
+
+      string legacyManifestPath = Path.Combine(legacyDirectory, DownloadLibraryService.ManifestFileName);
+      JObject legacyManifest = JObject.Parse(File.ReadAllText(legacyManifestPath));
+      legacyManifest["LastUpdateCheckedAtUtc"] = testNow.AddMinutes(1).ToString("O", CultureInfo.InvariantCulture);
+      File.WriteAllText(legacyManifestPath, legacyManifest.ToString(Formatting.None));
+      CheckString("future update check timestamp is idle", "idle", DownloadLibraryService.GetItem(101).UpdateState);
+      legacyManifest["LastUpdateCheckedAtUtc"] = "not-a-timestamp";
+      File.WriteAllText(legacyManifestPath, legacyManifest.ToString(Formatting.None));
+      CheckString("invalid update check timestamp is idle", "idle", DownloadLibraryService.GetItem(101).UpdateState);
 
       string changedDirectory = Path.Combine(root, "tuf-102");
       string changedLevel = CreateLevel(root, "tuf-102", "chart.adofai");
@@ -628,6 +651,9 @@ internal static class Program
       LevelUpdateService.Check(102, changedCheck);
       CheckString("unknown revision detects changed payload", "update_available", changedCheck.Snapshot().UpdateState);
       CheckString("changed legacy availability persists", "update_available", DownloadLibraryService.GetItem(102).UpdateState);
+      testNow = testNow.AddDays(1);
+      CheckString("available update ignores check ttl", "update_available", DownloadLibraryService.GetItem(102).UpdateState);
+      CheckString("available update omits expiry", null, DownloadLibraryService.GetItem(102).UpdateStateExpiresAtUtc);
 
       LevelUpdateService.SetDependenciesForTests(
         id => id switch
@@ -768,6 +794,7 @@ internal static class Program
     }
     finally
     {
+      DownloadLibraryService.SetUtcNowProviderForTests(null);
       LevelUpdateService.SetDependenciesForTests(null, null);
       DownloadStorageMigrationService.SetLevelInUseProbeForTests(null);
       DownloadStorageSettingsStore.Initialize(AppDomain.CurrentDomain.BaseDirectory);

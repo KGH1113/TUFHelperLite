@@ -25,6 +25,7 @@ public sealed class DownloadJob
   private int _difficultyId = -1;
   private long _sizeBytes;
   private string _updateState;
+  private string _updateStateExpiresAtUtc;
   private string _installedFileId;
   private string _availableFileId;
   private string _availableUpdatedAtUtc;
@@ -196,6 +197,7 @@ public sealed class DownloadJob
       _message = updateState == "update_available" ? "Update available" : "Up to date";
       _progress = 1;
       _updateState = updateState;
+      _updateStateExpiresAtUtc = item?.UpdateStateExpiresAtUtc;
       _installedFileId = installedFileId;
       _availableFileId = availableFileId;
       _availableUpdatedAtUtc = availableUpdatedAtUtc;
@@ -320,6 +322,7 @@ public sealed class DownloadJob
         DifficultyId = _difficultyId,
         SizeBytes = _sizeBytes,
         UpdateState = _updateState,
+        UpdateStateExpiresAtUtc = _updateStateExpiresAtUtc,
         InstalledFileId = _installedFileId,
         AvailableFileId = _availableFileId,
         AvailableUpdatedAtUtc = _availableUpdatedAtUtc,

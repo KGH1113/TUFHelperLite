@@ -12,6 +12,7 @@ public sealed class DownloadedLevelItem
   public string DownloadedAtUtc { get; set; }
   public string MetadataState { get; set; }
   public string UpdateState { get; set; }
+  public string UpdateStateExpiresAtUtc { get; set; }
 }
 
 public sealed class DownloadedLevelUpdateDescriptor

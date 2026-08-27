@@ -19,6 +19,7 @@ public sealed class DownloadJobSnapshot
   public int DifficultyId { get; set; }
   public long SizeBytes { get; set; }
   public string UpdateState { get; set; }
+  public string UpdateStateExpiresAtUtc { get; set; }
   public string InstalledFileId { get; set; }
   public string AvailableFileId { get; set; }
   public string AvailableUpdatedAtUtc { get; set; }

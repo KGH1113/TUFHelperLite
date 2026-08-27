@@ -23,8 +23,10 @@ public static class DownloadLibraryService
   private const int CursorVersion = 2;
   private const int SummaryVersion = 1;
   private const int MetadataFetchConcurrency = 4;
+  private static readonly TimeSpan UpdateCheckTtl = TimeSpan.FromHours(1);
   private static readonly object Gate = new();
   private static Func<string, TufLevelInfo> _metadataProvider = TuforumsClient.GetLevelMetadataById;
+  private static Func<DateTimeOffset> _utcNowProvider = () => DateTimeOffset.UtcNow;
   private static string _summaryPath;
   private static long _revision = 1;
   private static DownloadLibrarySummaryFile _summary;
@@ -265,7 +267,7 @@ public static class DownloadLibraryService
     DownloadedLevelManifest manifest = ReadManifest(manifestPath) ??
       BuildManifest(id, descriptor.DownloadedAtUnixMs, descriptor.SizeBytes, remote, descriptor.Directory);
     manifest = BuildManifest(id, manifest.DownloadedAtUnixMs, manifest.SizeBytes, remote, descriptor.Directory, manifest);
-    manifest.LastUpdateCheckedAtUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+    manifest.LastUpdateCheckedAtUtc = UtcNow().ToString("O", CultureInfo.InvariantCulture);
     if (upToDate)
     {
       if (!string.IsNullOrWhiteSpace(remote?.FileId)) manifest.DownloadedFileId = remote.FileId;
@@ -304,7 +306,7 @@ public static class DownloadLibraryService
       existing);
     manifest.DownloadedFileId = remote?.FileId;
     manifest.InstalledPayloadHash = installedPayloadHash;
-    manifest.LastUpdateCheckedAtUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+    manifest.LastUpdateCheckedAtUtc = UtcNow().ToString("O", CultureInfo.InvariantCulture);
     ClearAvailableUpdate(manifest);
     WriteAtomic(Path.Combine(directory, ManifestFileName), manifest);
 
@@ -437,6 +439,8 @@ public static class DownloadLibraryService
   internal static void ResetCandidateCountForTests() => _maximumCandidateCountObserved = 0;
   internal static void SetMetadataProviderForTests(Func<string, TufLevelInfo> provider) =>
     _metadataProvider = provider ?? TuforumsClient.GetLevelMetadataById;
+  internal static void SetUtcNowProviderForTests(Func<DateTimeOffset> provider) =>
+    _utcNowProvider = provider ?? (() => DateTimeOffset.UtcNow);
 
   internal static void RebuildSummaryForTests()
   {
@@ -580,21 +584,26 @@ public static class DownloadLibraryService
     };
   }
 
-  private static DownloadedLevelItem ToItem(DownloadedLevelManifest manifest) => new()
+  private static DownloadedLevelItem ToItem(DownloadedLevelManifest manifest)
   {
-    Id = manifest.Id,
-    DiffId = manifest.DiffId,
-    Artist = manifest.Artist,
-    LevelName = manifest.LevelName,
-    Creator = manifest.Creator,
-    SizeBytes = Math.Max(0, manifest.SizeBytes),
-    DownloadedAtUnixMs = manifest.DownloadedAtUnixMs,
-    DownloadedAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(manifest.DownloadedAtUnixMs).UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
-    MetadataState = manifest.MetadataState,
-    UpdateState = HasAvailableUpdate(manifest)
-      ? "update_available"
-      : string.IsNullOrWhiteSpace(manifest.LastUpdateCheckedAtUtc) ? "idle" : "up_to_date"
-  };
+    bool updateAvailable = HasAvailableUpdate(manifest);
+    DateTimeOffset expiresAt = default;
+    bool updateCheckFresh = !updateAvailable && TryGetUpdateStateExpiry(manifest, out expiresAt);
+    return new DownloadedLevelItem
+    {
+      Id = manifest.Id,
+      DiffId = manifest.DiffId,
+      Artist = manifest.Artist,
+      LevelName = manifest.LevelName,
+      Creator = manifest.Creator,
+      SizeBytes = Math.Max(0, manifest.SizeBytes),
+      DownloadedAtUnixMs = manifest.DownloadedAtUnixMs,
+      DownloadedAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(manifest.DownloadedAtUnixMs).UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+      MetadataState = manifest.MetadataState,
+      UpdateState = updateAvailable ? "update_available" : updateCheckFresh ? "up_to_date" : "idle",
+      UpdateStateExpiresAtUtc = updateCheckFresh ? expiresAt.ToString("O", CultureInfo.InvariantCulture) : null
+    };
+  }
 
   private static DownloadedLevelUpdateDescriptor ToUpdateDescriptor(DownloadedLevelManifest manifest, string directory) => new()
   {
@@ -613,6 +622,23 @@ public static class DownloadLibraryService
   private static bool HasAvailableUpdate(DownloadedLevelManifest manifest) =>
     !string.IsNullOrWhiteSpace(manifest.AvailableFileId) ||
     !string.IsNullOrWhiteSpace(manifest.AvailablePayloadHash);
+
+  private static bool TryGetUpdateStateExpiry(DownloadedLevelManifest manifest, out DateTimeOffset expiresAt)
+  {
+    expiresAt = default;
+    if (!DateTimeOffset.TryParse(
+      manifest.LastUpdateCheckedAtUtc,
+      CultureInfo.InvariantCulture,
+      DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+      out DateTimeOffset checkedAt)) return false;
+
+    DateTimeOffset now = UtcNow();
+    if (checkedAt > now) return false;
+    expiresAt = checkedAt.Add(UpdateCheckTtl);
+    return now < expiresAt;
+  }
+
+  private static DateTimeOffset UtcNow() => _utcNowProvider().ToUniversalTime();
 
   private static void ClearAvailableUpdate(DownloadedLevelManifest manifest)
   {
