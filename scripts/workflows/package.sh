@@ -13,8 +13,18 @@ run_task "Validate package inputs" "$TASKS_DIR/validate/package-inputs.sh"
 run_task "Verify AdofaiIpc dependency" "$TASKS_DIR/verify/adofai-ipc.sh"
 run_task "Build bootstrap (Release)" "$TASKS_DIR/build/bootstrap.sh" Release
 run_task "Build mod (Release)" "$TASKS_DIR/build/mod.sh" Release
+run_task "Validate Unity/Mono compatibility" \
+  "$TASKS_DIR/validate/unity-mono-compatibility.sh" \
+  "$TUFHELPER_LITE_BUILD_OUTPUT/TUFHelperLite.Core.dll" \
+  "$TUFHELPER_LITE_LAUNCHER_BUILD_OUTPUT/TUFHelperLite.Launcher.dll" \
+  "$TUFHELPER_LITE_UPDATE_ENGINE_BUILD_OUTPUT/TUFHelperLite.UpdateEngine.dll"
 run_task "Run C# tests" "$TASKS_DIR/test/csharp.sh"
 run_task "Stage mod package" "$TASKS_DIR/package/stage.sh"
+run_task "Validate staged Unity/Mono compatibility" \
+  "$TASKS_DIR/validate/unity-mono-compatibility.sh" \
+  "$TUFHELPER_LITE_PACKAGE_STAGE/TUFHelperLite.Core.dll" \
+  "$TUFHELPER_LITE_PACKAGE_STAGE/Assets/AdofaiIpc/TUFHelperLite.Launcher.dll" \
+  "$TUFHELPER_LITE_PACKAGE_STAGE/Assets/AdofaiIpc/TUFHelperLite.UpdateEngine.dll"
 run_task "Create mod archive" "$TASKS_DIR/package/archive.sh"
 run_task "Write checksum" "$TASKS_DIR/package/checksum.sh"
 run_task "Verify final package compatibility" env \

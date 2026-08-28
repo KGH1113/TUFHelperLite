@@ -10,6 +10,5 @@
     <AdofaiMods Condition="'$(AdofaiMods)' == ''">$(AdofaiDir)/Mods</AdofaiMods>
 
     <UnityModManagerDll Condition="'$(UnityModManagerDll)' == ''">$(AdofaiManaged)/UnityModManager/UnityModManager.dll</UnityModManagerDll>
-    <HarmonyDll Condition="'$(HarmonyDll)' == ''">$(AdofaiManaged)/UnityModManager/0Harmony.dll</HarmonyDll>
   </PropertyGroup>
 </Project>

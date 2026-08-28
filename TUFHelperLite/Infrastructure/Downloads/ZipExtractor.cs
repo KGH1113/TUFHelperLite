@@ -111,7 +111,7 @@ internal static class ZipExtractor
   {
     if (archive.Entries.Count > MaxEntryCount)
     {
-      throw new InvalidDataException($"Archive contains too many entries ({archive.Entries.Count}).");
+      throw new InvalidDataException(string.Concat("Archive contains too many entries (", archive.Entries.Count, ")."));
     }
 
     long totalLength = 0;
@@ -122,7 +122,7 @@ internal static class ZipExtractor
         .Length;
       if (depth > MaxPathDepth)
       {
-        throw new InvalidDataException($"Archive entry path is too deep: {entry.FullName}");
+        throw new InvalidDataException(string.Concat("Archive entry path is too deep: ", entry.FullName));
       }
 
       totalLength = checked(totalLength + entry.Length);

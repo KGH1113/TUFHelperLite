@@ -281,7 +281,7 @@ public static class LevelArchiveDownloader
     }
     catch (Exception e)
     {
-      Main.Instance?.Warning($"Failed to clean partial download directory: {e.Message}");
+      Main.Instance?.Warning(string.Concat("Failed to clean partial download directory: ", e.Message));
     }
   }
 
@@ -293,7 +293,7 @@ public static class LevelArchiveDownloader
     }
     catch (Exception e)
     {
-      Main.Instance?.Warning($"Failed to clean temporary archive: {e.Message}");
+      Main.Instance?.Warning(string.Concat("Failed to clean temporary archive: ", e.Message));
     }
   }
 
@@ -303,7 +303,7 @@ public static class LevelArchiveDownloader
     {
       Encoding = Encoding.UTF8;
       Proxy = null;
-      Headers[HttpRequestHeader.UserAgent] = $"TUFHelperLite/{ModStatus.Version}";
+      Headers[HttpRequestHeader.UserAgent] = string.Concat("TUFHelperLite/", ModStatus.Version);
     }
 
     protected override WebRequest GetWebRequest(Uri address)

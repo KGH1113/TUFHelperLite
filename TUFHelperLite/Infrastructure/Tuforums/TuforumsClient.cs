@@ -14,7 +14,7 @@ public static class TuforumsClient
 
     if (string.IsNullOrWhiteSpace(level.DownloadLink))
     {
-      throw new InvalidOperationException($"TUF level #{level.Id} does not have a download link.");
+      throw new InvalidOperationException(string.Concat("TUF level #", level.Id, " does not have a download link."));
     }
 
     return level;
@@ -48,7 +48,7 @@ public static class TuforumsClient
       Proxy = null
     };
 
-    client.Headers[HttpRequestHeader.UserAgent] = $"TUFHelperLite/{ModStatus.Version}";
+    client.Headers[HttpRequestHeader.UserAgent] = string.Concat("TUFHelperLite/", ModStatus.Version);
     return client;
   }
 }

@@ -142,7 +142,7 @@ public static class IpcRegistration
 
     if (snapshot == null)
     {
-      throw new InvalidOperationException($"Job not found: {body?.JobId}");
+      throw new InvalidOperationException(string.Concat("Job not found: ", body?.JobId));
     }
 
     return snapshot;

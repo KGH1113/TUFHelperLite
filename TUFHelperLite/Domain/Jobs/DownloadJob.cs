@@ -101,7 +101,7 @@ public sealed class DownloadJob
       _queuePosition = queuePosition;
       if (_status == "queued")
       {
-        _message = queuePosition > 0 ? $"Queued #{queuePosition}" : "Queued";
+        _message = queuePosition > 0 ? string.Concat("Queued #", queuePosition) : "Queued";
       }
       Touch();
     }

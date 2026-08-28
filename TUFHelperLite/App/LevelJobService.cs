@@ -49,7 +49,7 @@ public static class LevelJobService
     bool shouldOpen = job.OpenAfterDownload;
     Enqueue(job, () =>
     {
-      job.Report("resolving", $"Resolving TUF level #{normalizedId}");
+      job.Report("resolving", string.Concat("Resolving TUF level #", normalizedId));
       TufLevelInfo level = TuforumsClient.GetLevelById(normalizedId);
       job.SetResolvedLevel(
         level.Id.ToString(),
@@ -117,7 +117,7 @@ public static class LevelJobService
         }
         catch (Exception exception)
         {
-          Main.Instance?.Warning($"Failed to fetch metadata for TUF level #{parsedId}: {exception.Message}");
+          Main.Instance?.Warning(string.Concat("Failed to fetch metadata for TUF level #", parsedId, ": ", exception.Message));
         }
       }
 
@@ -523,7 +523,7 @@ public static class LevelJobService
   {
     using SHA256 sha256 = SHA256.Create();
     byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(url ?? ""));
-    return $"url-{BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant()}";
+    return string.Concat("url-", BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant());
   }
 
   private static string FirstNonEmpty(params string[] values)

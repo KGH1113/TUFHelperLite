@@ -104,7 +104,7 @@ public static class LevelUpdateCheckBatchService
 
       LevelUpdateCheckBatchSnapshot result = GetStatus();
       Complete("completed", result.UpdatesAvailable > 0
-        ? $"{result.UpdatesAvailable} updates are available."
+        ? string.Concat(result.UpdatesAvailable, " updates are available.")
         : "All downloaded levels are up to date.");
     }
     catch (OperationCanceledException)
@@ -159,8 +159,8 @@ public static class LevelUpdateCheckBatchService
 
       LevelUpdateCheckBatchSnapshot result = GetStatus();
       Complete("completed", result.LevelsFailed > 0
-        ? $"Updated {result.LevelsUpdated} levels; {result.LevelsFailed} failed."
-        : $"Updated {result.LevelsUpdated} levels.");
+        ? string.Concat("Updated ", result.LevelsUpdated, " levels; ", result.LevelsFailed, " failed.")
+        : string.Concat("Updated ", result.LevelsUpdated, " levels."));
     }
     catch (OperationCanceledException)
     {

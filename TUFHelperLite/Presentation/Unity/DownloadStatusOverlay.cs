@@ -84,7 +84,7 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
     }
     catch (Exception e)
     {
-      Main.Instance?.Warning($"Failed to load download overlay AssetBundle: {e.Message}");
+      Main.Instance?.Warning(string.Concat("Failed to load download overlay AssetBundle: ", e.Message));
       Main.Instance?.LogException(e);
     }
   }

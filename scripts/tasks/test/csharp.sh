@@ -18,8 +18,7 @@ DOTNET_ROOT="$DOTNET_ROOT" DOTNET_ROOT_ARM64="$DOTNET_ROOT_ARM64" \
     -p:AdofaiManaged="$ADOFAI_MANAGED" \
     -p:AdofaiMods="$ADOFAI_MODS_DIR" \
     -p:AdofaiIpcDll="$ADOFAIIPC_DLL" \
-    -p:UnityModManagerDll="$UNITY_MOD_MANAGER_DLL" \
-    -p:HarmonyDll="$HARMONY_DLL"
+    -p:UnityModManagerDll="$UNITY_MOD_MANAGER_DLL"
 
 DOTNET_ROOT="$DOTNET_ROOT" DOTNET_ROOT_ARM64="$DOTNET_ROOT_ARM64" \
   "$DOTNET_EXE" "$core_test_output/TUFHelperLite.Tests.dll"

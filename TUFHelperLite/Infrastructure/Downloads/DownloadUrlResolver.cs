@@ -39,7 +39,7 @@ public static class DownloadUrlResolver
       else if (url.StartsWith("https://www.dropbox.com"))
       {
         string id = StringUtil.GetValue(url, "https://www.dropbox.com/s/", "?");
-        resolvedUrl = $"https://www.dropbox.com/s/{id}?dl=1";
+        resolvedUrl = string.Concat("https://www.dropbox.com/s/", id, "?dl=1");
       }
       else if (url.StartsWith("https://drive.google.com/drive/folders/"))
       {
@@ -59,7 +59,7 @@ public static class DownloadUrlResolver
     }
     catch (Exception e)
     {
-      throw new InvalidOperationException($"The download link is not accessible. {e.Message}", e);
+      throw new InvalidOperationException(string.Concat("The download link is not accessible. ", e.Message), e);
     }
   }
 
@@ -89,7 +89,7 @@ public static class DownloadUrlResolver
       throw new InvalidOperationException("Google Drive file id was not resolved.");
     }
 
-    string downloadUrl = $"https://drive.google.com/u/0/uc?export=download&id={id}";
+    string downloadUrl = string.Concat("https://drive.google.com/u/0/uc?export=download&id=", id);
 
     using (System.IO.Stream stream = client.OpenRead(downloadUrl))
     {
@@ -113,10 +113,10 @@ public static class DownloadUrlResolver
 
     if (!html.Contains("name=\"at\" value=\""))
     {
-      return $"https://drive.usercontent.google.com/download?id={id}&export=download&authuser=0&confirm=t&uuid={uuid}";
+      return string.Concat("https://drive.usercontent.google.com/download?id=", id, "&export=download&authuser=0&confirm=t&uuid=", uuid);
     }
 
     string at = StringUtil.GetValue(html, "name=\"at\" value=\"", "\">");
-    return $"https://drive.usercontent.google.com/download?id={id}&export=download&authuser=0&confirm=t&uuid={uuid}&at={at}";
+    return string.Concat("https://drive.usercontent.google.com/download?id=", id, "&export=download&authuser=0&confirm=t&uuid=", uuid, "&at=", at);
   }
 }

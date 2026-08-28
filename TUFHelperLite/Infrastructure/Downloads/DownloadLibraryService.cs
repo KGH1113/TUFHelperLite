@@ -382,10 +382,10 @@ public static class DownloadLibraryService
     catch (Exception exception)
     {
       throw new DownloadStorageMigrationException("storage_merge_conflict",
-        $"Level #{id} differs in both folders and the latest official version could not be checked: {exception.Message}");
+        string.Concat("Level #", id, " differs in both folders and the latest official version could not be checked: ", exception.Message));
     }
     if (remote == null || remote.IsDeleted || string.IsNullOrWhiteSpace(remote.DownloadLink))
-      throw new DownloadStorageMigrationException("storage_merge_conflict", $"Level #{id} has no comparable official download.");
+      throw new DownloadStorageMigrationException("storage_merge_conflict", string.Concat("Level #", id, " has no comparable official download."));
 
     bool sourceMatchesFile = !string.IsNullOrWhiteSpace(remote.FileId) &&
       string.Equals(source?.DownloadedFileId, remote.FileId, StringComparison.Ordinal);
@@ -407,14 +407,14 @@ public static class DownloadLibraryService
     catch (Exception exception)
     {
       throw new DownloadStorageMigrationException("storage_merge_conflict",
-        $"Level #{id} differs in both folders and could not be compared: {exception.Message}");
+        string.Concat("Level #", id, " differs in both folders and could not be compared: ", exception.Message));
     }
     finally
     {
       try { if (Directory.Exists(comparisonRoot)) Directory.Delete(comparisonRoot, true); } catch { }
     }
     throw new DownloadStorageMigrationException("storage_merge_conflict",
-      $"Level #{id} differs in both folders and neither copy can be selected safely.");
+      string.Concat("Level #", id, " differs in both folders and neither copy can be selected safely."));
   }
 
   public static bool IsValidDownloadedLevelDirectory(string directory, int expectedId)
@@ -547,7 +547,7 @@ public static class DownloadLibraryService
         remote,
         candidate.Directory);
       if (!string.Equals(manifest.MetadataState, "ready", StringComparison.Ordinal))
-        throw new InvalidOperationException($"Downloaded level #{candidate.Id} metadata is incomplete.");
+        throw new InvalidOperationException(string.Concat("Downloaded level #", candidate.Id, " metadata is incomplete."));
 
       WriteAtomic(manifestPath, manifest);
       Directory.SetLastWriteTimeUtc(

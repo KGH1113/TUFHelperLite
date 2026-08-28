@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -157,7 +158,7 @@ internal sealed class DownloadOverlayView : IDisposable
     AssetBundle bundle = AssetBundle.LoadFromFile(path);
     if (bundle == null)
     {
-      throw new InvalidOperationException($"Failed to load TUFHelperLite UI AssetBundle: {path}");
+      throw new InvalidOperationException(string.Concat("Failed to load TUFHelperLite UI AssetBundle: ", path));
     }
 
     string prefabName = bundle.GetAllAssetNames()
@@ -227,8 +228,8 @@ internal sealed class DownloadOverlayView : IDisposable
   {
     if (job == null) return;
 
-    _warningAvailableText.text = $"Available {FormatBytes(job.ErrorAvailableBytes)}";
-    _warningRequiredText.text = $"Required {FormatBytes(job.ErrorRequiredBytes)}";
+    _warningAvailableText.text = string.Concat("Available ", FormatBytes(job.ErrorAvailableBytes));
+    _warningRequiredText.text = string.Concat("Required ", FormatBytes(job.ErrorRequiredBytes));
     _warningDismissButton.onClick.RemoveAllListeners();
     _warningDismissButton.onClick.AddListener(() =>
     {
@@ -333,7 +334,9 @@ internal sealed class DownloadOverlayView : IDisposable
     }
 
     _progressFill.fillAmount = Mathf.Clamp01(progress);
-    _progressText.text = determinate ? $"{Mathf.Clamp01(progress) * 100f:0}%" : string.Empty;
+    _progressText.text = determinate
+      ? string.Format(CultureInfo.CurrentCulture, "{0:0}%", Mathf.Clamp01(progress) * 100f)
+      : string.Empty;
   }
 
   public void ShowCheckingUpdate()
@@ -547,7 +550,7 @@ internal sealed class DownloadOverlayView : IDisposable
     }
 
     _selectionMetadataText.text = SelectionMetaText(job);
-    _selectionCountText.text = $"{paths.Length} .adofai files found";
+    _selectionCountText.text = string.Concat(paths.Length, " .adofai files found");
     _selectionDifficultyIcon.sprite = GetDifficultyIcon(job.DifficultyId);
 
     int visibleRows = Mathf.Clamp(paths.Length, 1, SelectionVisibleRows);
@@ -561,7 +564,7 @@ internal sealed class DownloadOverlayView : IDisposable
     {
       string selectedPath = path;
       Button row = UnityEngine.Object.Instantiate(_selectionRowTemplate, _selectionContent, false);
-      row.name = $"SelectionRow-{Path.GetFileNameWithoutExtension(path)}";
+      row.name = string.Concat("SelectionRow-", Path.GetFileNameWithoutExtension(path));
       row.gameObject.SetActive(true);
       row.onClick.RemoveAllListeners();
       row.GetComponentInChildren<TMP_Text>(true).text = RelativeLevelPath(job.Directory, path);
@@ -606,7 +609,7 @@ internal sealed class DownloadOverlayView : IDisposable
     T component = child == null ? null : child.GetComponent<T>();
     if (component == null)
     {
-      throw new InvalidOperationException($"UI component not found: {path} ({typeof(T).Name})");
+      throw new InvalidOperationException(string.Concat("UI component not found: ", path, " (", typeof(T).Name, ")"));
     }
 
     return component;
@@ -653,7 +656,7 @@ internal sealed class DownloadOverlayView : IDisposable
       RuntimePlatform.OSXPlayer => "mac",
       RuntimePlatform.WindowsPlayer => "win",
       RuntimePlatform.LinuxPlayer => "linux",
-      _ => throw new PlatformNotSupportedException($"Unsupported platform: {Application.platform}")
+      _ => throw new PlatformNotSupportedException(string.Concat("Unsupported platform: ", Application.platform))
     };
   }
 
@@ -664,10 +667,10 @@ internal sealed class DownloadOverlayView : IDisposable
     const long gibibyte = 1024L * mebibyte;
 
     long value = Math.Max(0L, bytes);
-    if (value >= gibibyte) return $"{value / (double)gibibyte:0.#} GB";
-    if (value >= mebibyte) return $"{value / (double)mebibyte:0.#} MB";
-    if (value >= kibibyte) return $"{value / (double)kibibyte:0.#} KB";
-    return $"{value} B";
+    if (value >= gibibyte) return string.Format(CultureInfo.CurrentCulture, "{0:0.#} GB", value / (double)gibibyte);
+    if (value >= mebibyte) return string.Format(CultureInfo.CurrentCulture, "{0:0.#} MB", value / (double)mebibyte);
+    if (value >= kibibyte) return string.Format(CultureInfo.CurrentCulture, "{0:0.#} KB", value / (double)kibibyte);
+    return string.Concat(value, " B");
   }
 
   private static string ModDirectory()
@@ -688,14 +691,14 @@ internal sealed class DownloadOverlayView : IDisposable
 
   private static string MetaText(DownloadJobSnapshot job)
   {
-    string id = string.IsNullOrWhiteSpace(job.LevelId) ? "TUFHelperLite" : $"#{job.LevelId}";
-    return $"{id} - {FirstNonEmpty(job.Artist, "TUF Forums")}";
+    string id = string.IsNullOrWhiteSpace(job.LevelId) ? "TUFHelperLite" : string.Concat("#", job.LevelId);
+    return string.Concat(id, " - ", FirstNonEmpty(job.Artist, "TUF Forums"));
   }
 
   private static string SelectionMetaText(DownloadJobSnapshot job)
   {
-    string id = string.IsNullOrWhiteSpace(job.LevelId) ? "TUFHelperLite" : $"#{job.LevelId}";
-    return $"{id} - {FirstNonEmpty(job.Song, job.Artist, "Downloaded level")}";
+    string id = string.IsNullOrWhiteSpace(job.LevelId) ? "TUFHelperLite" : string.Concat("#", job.LevelId);
+    return string.Concat(id, " - ", FirstNonEmpty(job.Song, job.Artist, "Downloaded level"));
   }
 
   private static string RelativeLevelPath(string directory, string path)
@@ -731,18 +734,18 @@ internal sealed class DownloadOverlayView : IDisposable
     string message = FirstNonEmpty(job.Message, job.Stage, job.Status);
     if (job.Status == "queued" && job.QueuePosition > 0)
     {
-      return $"Queued #{job.QueuePosition}: {message}";
+      return string.Concat("Queued #", job.QueuePosition, ": ", message);
     }
 
     if (job.Status == "failed" && !string.IsNullOrWhiteSpace(job.Error))
     {
-      return $"Failed: {job.Error}";
+      return string.Concat("Failed: ", job.Error);
     }
 
     string label = !string.IsNullOrWhiteSpace(job.Stage) && job.Status == "running"
       ? job.Stage
       : FirstNonEmpty(job.Status, "working");
-    return $"{label}: {message}";
+    return string.Concat(label, ": ", message);
   }
 
   private static bool IsCheckingUpdate(DownloadJobSnapshot job)

@@ -16,10 +16,6 @@
       <HintPath>$(UnityModManagerDll)</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="0Harmony">
-      <HintPath>$(HarmonyDll)</HintPath>
-      <Private>false</Private>
-    </Reference>
     <Reference Include="Assembly-CSharp">
       <HintPath>$(AdofaiManaged)/Assembly-CSharp.dll</HintPath>
       <Private>false</Private>

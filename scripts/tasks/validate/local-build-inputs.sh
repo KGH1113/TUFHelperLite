@@ -10,7 +10,6 @@ source "$TASK_DIR/../../lib/guards.sh"
 require_executable "$DOTNET_EXE"
 require_dir "$ADOFAI_MANAGED"
 require_file "$UNITY_MOD_MANAGER_DLL"
-require_file "$HARMONY_DLL"
 require_file "$ADOFAIIPC_DLL"
 require_file "$ADOFAIIPC_BOOTSTRAP_LOCK"
 require_command shasum
