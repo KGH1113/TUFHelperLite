@@ -29,42 +29,19 @@ public static class LevelUpdateService
   public static void Check(int id, DownloadJob job)
   {
     EnsureAvailable();
-    DownloadedLevelUpdateDescriptor current = DownloadLibraryService.GetUpdateDescriptor(id);
     TufLevelInfo remote = GetRemote(id);
     job.SetLevelInfo(remote.Song, remote.Artist, FirstNonEmpty(remote.Creator, remote.Charter, remote.Team));
     job.SetDifficultyId(remote.DiffId);
+    LevelOpenUpdateCheckResult result = CheckResolvedCore(id, remote, job, true);
+    job.CompleteUpdate(result.Item, result.State, result.InstalledFileId,
+      result.AvailableFileId, result.AvailableUpdatedAtUtc);
+  }
 
-    bool hasComparableRevision = !string.IsNullOrWhiteSpace(remote.FileId) &&
-      !string.IsNullOrWhiteSpace(current.DownloadedFileId);
-    if (hasComparableRevision)
-    {
-      bool upToDate = string.Equals(remote.FileId, current.DownloadedFileId, StringComparison.Ordinal);
-      DownloadedLevelItem item = DownloadLibraryService.RecordUpdateCheck(id, remote, null, upToDate);
-      DownloadedLevelUpdateDescriptor saved = DownloadLibraryService.GetUpdateDescriptor(id);
-      job.CompleteUpdate(item, upToDate ? "up_to_date" : "update_available",
-        saved.DownloadedFileId, saved.AvailableFileId, saved.AvailableUpdatedAtUtc);
-      return;
-    }
-
-    string staging = CreateStagingPath("check", id, job.JobId);
-    try
-    {
-      job.Report("comparing", "Downloading latest level to compare", -1);
-      _stagingDownloader(remote.DownloadLink, staging, job.Token, job.Report);
-      string candidateHash = DownloadLibraryService.CalculatePayloadHash(staging);
-      string installedHash = current.InstalledPayloadHash;
-      if (string.IsNullOrWhiteSpace(installedHash))
-        installedHash = DownloadLibraryService.CalculatePayloadHash(current.Directory);
-      bool upToDate = string.Equals(candidateHash, installedHash, StringComparison.OrdinalIgnoreCase);
-      DownloadedLevelItem item = DownloadLibraryService.RecordUpdateCheck(id, remote, candidateHash, upToDate);
-      DownloadedLevelUpdateDescriptor saved = DownloadLibraryService.GetUpdateDescriptor(id);
-      job.CompleteUpdate(item, upToDate ? "up_to_date" : "update_available",
-        saved.DownloadedFileId, saved.AvailableFileId, saved.AvailableUpdatedAtUtc);
-    }
-    finally
-    {
-      TryDeleteDirectory(staging);
-    }
+  internal static LevelOpenUpdateCheckResult CheckForOpen(int id, TufLevelInfo remote, DownloadJob job)
+  {
+    EnsureAvailable();
+    ValidateRemote(remote);
+    return CheckResolvedCore(id, remote, job, false);
   }
 
   public static void Update(int id, DownloadJob job)
@@ -141,11 +118,89 @@ public static class LevelUpdateService
   private static TufLevelInfo GetRemote(int id)
   {
     TufLevelInfo remote = _levelProvider(id.ToString(CultureInfo.InvariantCulture));
+    ValidateRemote(remote);
+    return remote;
+  }
+
+  private static void ValidateRemote(TufLevelInfo remote)
+  {
+    if (remote == null)
+      throw new LevelUpdateException("downloaded_level_unavailable", "TUF returned no level information.");
     if (remote.IsDeleted)
       throw new LevelUpdateException("downloaded_level_deleted", "This level is no longer available on TUF.");
     if (string.IsNullOrWhiteSpace(remote.DownloadLink))
       throw new LevelUpdateException("downloaded_level_unavailable", "This level does not have a downloadable file.");
-    return remote;
+  }
+
+  private static LevelOpenUpdateCheckResult CheckResolvedCore(
+    int id,
+    TufLevelInfo remote,
+    DownloadJob job,
+    bool requireInstalled)
+  {
+    if (!DownloadLibraryService.TryGetUpdateDescriptor(id, out DownloadedLevelUpdateDescriptor current))
+    {
+      if (requireInstalled) throw new InvalidOperationException("downloaded_level_not_found");
+      return new LevelOpenUpdateCheckResult { State = LevelOpenUpdateCheckResult.NotInstalled };
+    }
+
+    bool hasRemoteRevision = !string.IsNullOrWhiteSpace(remote.FileId);
+    if (hasRemoteRevision && string.Equals(remote.FileId, current.AvailableFileId, StringComparison.Ordinal))
+    {
+      return SaveCheckResult(id, remote, current.AvailablePayloadHash, false);
+    }
+
+    if (hasRemoteRevision && !string.IsNullOrWhiteSpace(current.DownloadedFileId))
+    {
+      bool upToDate = string.Equals(remote.FileId, current.DownloadedFileId, StringComparison.Ordinal);
+      return SaveCheckResult(id, remote, null, upToDate);
+    }
+
+    string staging = CreateStagingPath("check", id, job.JobId);
+    try
+    {
+      string stage = requireInstalled ? "comparing" : "Checking Update";
+      string message = requireInstalled ? "Downloading latest level to compare" : "Comparing installed version";
+      job.Report(stage, message, -1);
+      _stagingDownloader(remote.DownloadLink, staging, job.Token, progress =>
+      {
+        job.Report(
+          stage,
+          message,
+          progress?.Progress ?? -1,
+          progress?.BytesReceived ?? -1,
+          progress?.TotalBytes ?? -1);
+      });
+      string candidateHash = DownloadLibraryService.CalculatePayloadHash(staging);
+      string installedHash = current.InstalledPayloadHash;
+      if (string.IsNullOrWhiteSpace(installedHash))
+        installedHash = DownloadLibraryService.CalculatePayloadHash(current.Directory);
+      bool upToDate = string.Equals(candidateHash, installedHash, StringComparison.OrdinalIgnoreCase);
+      return SaveCheckResult(id, remote, candidateHash, upToDate);
+    }
+    finally
+    {
+      TryDeleteDirectory(staging);
+    }
+  }
+
+  private static LevelOpenUpdateCheckResult SaveCheckResult(
+    int id,
+    TufLevelInfo remote,
+    string availablePayloadHash,
+    bool upToDate)
+  {
+    DownloadedLevelItem item = DownloadLibraryService.RecordUpdateCheck(
+      id, remote, availablePayloadHash, upToDate);
+    DownloadedLevelUpdateDescriptor saved = DownloadLibraryService.GetUpdateDescriptor(id);
+    return new LevelOpenUpdateCheckResult
+    {
+      State = upToDate ? LevelOpenUpdateCheckResult.UpToDate : LevelOpenUpdateCheckResult.UpdateAvailable,
+      Item = item,
+      InstalledFileId = saved.DownloadedFileId,
+      AvailableFileId = saved.AvailableFileId,
+      AvailableUpdatedAtUtc = saved.AvailableUpdatedAtUtc
+    };
   }
 
   private static void EnsureAvailable()

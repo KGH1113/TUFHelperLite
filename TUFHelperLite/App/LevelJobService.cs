@@ -16,6 +16,7 @@ namespace TUFHelperLite.App;
 public static class LevelJobService
 {
   private const int MaxRetainedTerminalJobs = 100;
+  private static readonly TimeSpan PresentationWaitTimeout = TimeSpan.FromSeconds(2);
 
   private sealed class QueuedWork
   {
@@ -50,9 +51,22 @@ public static class LevelJobService
     {
       job.Report("resolving", $"Resolving TUF level #{normalizedId}");
       TufLevelInfo level = TuforumsClient.GetLevelById(normalizedId);
-      job.SetLevel(level.Id.ToString(), level.DownloadLink);
-      job.SetLevelInfo(level.Song, level.Artist, FirstNonEmpty(level.Creator, level.Charter, level.Team));
-      job.SetDifficultyId(level.DiffId);
+      job.SetResolvedLevel(
+        level.Id.ToString(),
+        level.DownloadLink,
+        level.Song,
+        level.Artist,
+        FirstNonEmpty(level.Creator, level.Charter, level.Team),
+        level.DiffId);
+      job.WaitForPresentationObserved(PresentationWaitTimeout);
+
+      LevelOpenUpdateCheckResult updateCheck = LevelUpdateService.CheckForOpen(level.Id, level, job);
+      job.RecordUpdateCheck(
+        updateCheck.Item,
+        updateCheck.State,
+        updateCheck.InstalledFileId,
+        updateCheck.AvailableFileId,
+        updateCheck.AvailableUpdatedAtUtc);
 
       LevelDownloadResult result = LevelArchiveDownloader.Download(level.DownloadLink, job.CacheKey, job.Token, job.Report);
       DownloadLibraryService.RecordDownload(result, level, normalizedId);
@@ -223,8 +237,8 @@ public static class LevelJobService
     lock (Lock)
     {
       return Jobs.Values
-        .Select(job => job.Snapshot())
         .Where(ShouldDisplayInGame)
+        .Select(job => job.Snapshot())
         .Where(snapshot => !snapshot.Done || IsUndismissedDiskSpaceFailure(snapshot))
         .OrderBy(snapshot => IsUndismissedDiskSpaceFailure(snapshot) ? 0 : snapshot.Status == "waiting_selection" ? 1 : snapshot.Status == "running" ? 2 : 3)
         .ThenBy(snapshot => snapshot.CreatedAtUnixMs)
@@ -235,6 +249,24 @@ public static class LevelJobService
   internal static bool ShouldDisplayInGame(DownloadJobSnapshot snapshot)
   {
     return snapshot != null && snapshot.Kind is not "level.update" and not "level.update-check";
+  }
+
+  internal static bool ShouldDisplayInGame(DownloadJob job)
+  {
+    if (job == null) return false;
+    DownloadJobSnapshot snapshot = job.Snapshot();
+    return ShouldDisplayInGame(snapshot)
+      && (!string.Equals(snapshot.Kind, "level.open-from-id", StringComparison.Ordinal)
+        || job.HasPresentationInfo);
+  }
+
+  internal static void MarkPresentationShown(string jobId)
+  {
+    lock (Lock)
+    {
+      if (Jobs.TryGetValue(jobId ?? string.Empty, out DownloadJob job))
+        job.MarkPresentationObserved();
+    }
   }
 
   internal static bool DismissModal(string jobId)
@@ -277,6 +309,7 @@ public static class LevelJobService
     }
 
     if (!job.SelectLevel(levelPath)) return false;
+    QueueUpdateWarningIfNeeded(job);
     LevelOpenService.Open(levelPath);
     ReleaseAutoOpen(job);
     PruneTerminalJobs();
@@ -477,6 +510,7 @@ public static class LevelJobService
       }
 
       job.Report("opening", "Opening level", 1);
+      QueueUpdateWarningIfNeeded(job);
       LevelOpenService.Open(result.SelectedLevelPath);
       opened = true;
     }
@@ -511,5 +545,13 @@ public static class LevelJobService
         _autoOpenJobId = null;
       }
     }
+  }
+
+  private static void QueueUpdateWarningIfNeeded(DownloadJob job)
+  {
+    if (!string.Equals(job?.Snapshot().UpdateState, LevelOpenUpdateCheckResult.UpdateAvailable, StringComparison.Ordinal))
+      return;
+
+    DownloadStatusOverlay.QueueUpdateWarning(new UpdateWarningToastModel());
   }
 }

@@ -233,11 +233,20 @@ public static class DownloadLibraryService
 
   public static DownloadedLevelUpdateDescriptor GetUpdateDescriptor(int id)
   {
+    if (TryGetUpdateDescriptor(id, out DownloadedLevelUpdateDescriptor descriptor)) return descriptor;
+    throw new InvalidOperationException("downloaded_level_not_found");
+  }
+
+  internal static bool TryGetUpdateDescriptor(int id, out DownloadedLevelUpdateDescriptor descriptor)
+  {
     EnsureStorageAvailable();
     EnsureInitialized();
     string directory = Path.Combine(DownloadCachePaths.GetDownloadRoot(), DownloadCachePaths.BuildTufCacheKey(id.ToString(CultureInfo.InvariantCulture)));
     if (!Directory.Exists(directory) || !HasLevelFile(directory))
-      throw new InvalidOperationException("downloaded_level_not_found");
+    {
+      descriptor = null;
+      return false;
+    }
 
     string manifestPath = Path.Combine(directory, ManifestFileName);
     DownloadedLevelManifest manifest = ReadManifest(manifestPath);
@@ -253,7 +262,8 @@ public static class DownloadLibraryService
       WriteAtomic(manifestPath, manifest);
     }
 
-    return ToUpdateDescriptor(manifest, directory);
+    descriptor = ToUpdateDescriptor(manifest, directory);
+    return true;
   }
 
   public static DownloadedLevelItem RecordUpdateCheck(

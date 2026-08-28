@@ -19,6 +19,11 @@ internal sealed class DownloadOverlayView : IDisposable
   private const float SelectionRowSpacing = 10f;
   private const float SelectionBottomPadding = 32f;
   private const int SelectionVisibleRows = 6;
+  private const float ToastVisibleDuration = 5f;
+  private const float ToastShowDuration = 0.16f;
+  private const float ToastHideDuration = 0.12f;
+  private const float ToastControlsGap = 16f;
+  private const float ToastScreenMargin = 24f;
 
   private readonly AssetBundle _bundle;
   private readonly GameObject _root;
@@ -57,16 +62,39 @@ internal sealed class DownloadOverlayView : IDisposable
   private readonly TMP_Text _warningRequiredText;
   private readonly Button _warningDismissButton;
   private readonly Vector3 _warningPanelScale;
+  private readonly RectTransform _rootRect;
+  private readonly RectTransform _toastLayer;
+  private readonly CanvasGroup _toastCanvasGroup;
+  private readonly RectTransform _toastPanel;
+  private readonly TMP_Text _toastTitleText;
+  private readonly TMP_Text _toastMessageText;
+  private readonly Image _toastProgressFill;
+  private readonly Button _toastDismissButton;
+  private readonly Vector3[] _nativeControlCorners = new Vector3[4];
   private bool _targetVisible;
   private bool _selectionTargetVisible;
   private bool _warningTargetVisible;
   private string _selectionKey;
   private string _cancelJobId;
+  private ToastState _toastState;
+  private float _toastStateElapsed;
+  private float _toastRemaining;
+  private bool _toastHovered;
+  private bool _checkingUpdate;
+
+  private enum ToastState
+  {
+    Hidden,
+    Showing,
+    Visible,
+    Hiding
+  }
 
   private DownloadOverlayView(AssetBundle bundle, GameObject root)
   {
     _bundle = bundle;
     _root = root;
+    _rootRect = root.GetComponent<RectTransform>();
     _card = Find<RectTransform>("DownloadCard");
     _downloadCanvasGroup = _card.GetComponent<CanvasGroup>();
     _metadataText = Find<TextMeshProUGUI>("DownloadCard/MetadataText");
@@ -98,12 +126,23 @@ internal sealed class DownloadOverlayView : IDisposable
     _warningRequiredText = Find<TextMeshProUGUI>("DiskWarningLayer/WarningPanel/DetailsPanel/RequiredText");
     _warningDismissButton = Find<Button>("DiskWarningLayer/WarningPanel/DismissButton");
     _warningPanelScale = _warningPanel.localScale;
+    _toastLayer = Find<RectTransform>("UpdateToastLayer");
+    _toastCanvasGroup = _toastLayer.GetComponent<CanvasGroup>();
+    _toastPanel = Find<RectTransform>("UpdateToastLayer/ToastPanel");
+    _toastTitleText = Find<TextMeshProUGUI>("UpdateToastLayer/ToastPanel/TitleText");
+    _toastMessageText = Find<TextMeshProUGUI>("UpdateToastLayer/ToastPanel/MessageText");
+    _toastProgressFill = Find<Image>("UpdateToastLayer/ToastPanel/ProgressTrack/ProgressFill");
+    _toastDismissButton = Find<Button>("UpdateToastLayer/ToastPanel/DismissButton");
+    ToastHoverTrigger hoverTrigger = _toastPanel.gameObject.AddComponent<ToastHoverTrigger>();
+    hoverTrigger.Configure(SetToastHovered);
+    _toastDismissButton.onClick.AddListener(DismissUpdateWarning);
     IndexDifficultyIcons();
     _fallbackIcon = LoadDifficultyIcon(0) ?? _difficultyIcon.sprite;
     _selectionRowTemplate.gameObject.SetActive(false);
     _card.gameObject.SetActive(false);
     _selectionLayer.gameObject.SetActive(false);
     _warningLayer.gameObject.SetActive(false);
+    _toastLayer.gameObject.SetActive(false);
     _root.SetActive(true);
   }
 
@@ -268,6 +307,9 @@ internal sealed class DownloadOverlayView : IDisposable
         _warningLayer.gameObject.SetActive(false);
       }
     }
+
+    TickCheckingUpdate();
+    TickUpdateToast(deltaTime);
   }
 
   public void Bind(DownloadJobSnapshot job, Func<string, bool> onCancel)
@@ -275,7 +317,8 @@ internal sealed class DownloadOverlayView : IDisposable
     _metadataText.text = MetaText(job);
     _titleText.text = FirstNonEmpty(job.Song, LevelNameFromPath(job.SelectedLevelPath), "Downloading level");
     _creatorText.text = FirstNonEmpty(job.Creator, "Unknown creator");
-    _statusText.text = StatusText(job);
+    _checkingUpdate = IsCheckingUpdate(job);
+    _statusText.text = _checkingUpdate ? "Checking Update" : StatusText(job);
     _difficultyIcon.sprite = GetDifficultyIcon(job.DifficultyId);
     _statusDot.color = StatusColor(job.Status);
     BindCancel(job, onCancel);
@@ -283,8 +326,194 @@ internal sealed class DownloadOverlayView : IDisposable
 
   public void SetProgress(float progress, bool determinate)
   {
+    if (_checkingUpdate)
+    {
+      _progressText.text = string.Empty;
+      return;
+    }
+
     _progressFill.fillAmount = Mathf.Clamp01(progress);
     _progressText.text = determinate ? $"{Mathf.Clamp01(progress) * 100f:0}%" : string.Empty;
+  }
+
+  public void ShowCheckingUpdate()
+  {
+    _checkingUpdate = true;
+    _statusText.text = "Checking Update";
+    _progressText.text = string.Empty;
+  }
+
+  public void ShowUpdateWarning(UpdateWarningToastModel model)
+  {
+    model ??= new UpdateWarningToastModel();
+    _toastTitleText.text = model.Title;
+    _toastMessageText.text = model.Message;
+    _toastRemaining = ToastVisibleDuration;
+    _toastProgressFill.fillAmount = 1f;
+    _toastHovered = false;
+    _toastState = ToastState.Showing;
+    _toastStateElapsed = 0f;
+    _toastLayer.gameObject.SetActive(true);
+    _toastCanvasGroup.alpha = 0f;
+    _toastCanvasGroup.interactable = true;
+    _toastCanvasGroup.blocksRaycasts = true;
+    UpdateToastPlacement(-8f);
+  }
+
+  public void DismissUpdateWarning()
+  {
+    if (_toastState is ToastState.Hidden or ToastState.Hiding) return;
+
+    _toastHovered = false;
+    _toastState = ToastState.Hiding;
+    _toastStateElapsed = 0f;
+    _toastCanvasGroup.interactable = false;
+    _toastCanvasGroup.blocksRaycasts = false;
+  }
+
+  public void ResetTransientUi()
+  {
+    _checkingUpdate = false;
+    _toastHovered = false;
+    _toastState = ToastState.Hidden;
+    _toastRemaining = 0f;
+    if (_toastLayer != null)
+    {
+      _toastCanvasGroup.alpha = 0f;
+      _toastCanvasGroup.interactable = false;
+      _toastCanvasGroup.blocksRaycasts = false;
+      _toastLayer.gameObject.SetActive(false);
+    }
+  }
+
+  public bool HasNativeToastAnchor()
+  {
+    return TryGetNativeControlsScreenRect(out _);
+  }
+
+  private void TickCheckingUpdate()
+  {
+    if (!_checkingUpdate) return;
+
+    _progressFill.fillAmount = 0.14f + Mathf.PingPong(Time.unscaledTime * 0.55f, 0.72f);
+  }
+
+  private void TickUpdateToast(float deltaTime)
+  {
+    if (_toastState == ToastState.Hidden) return;
+
+    _toastStateElapsed += deltaTime;
+    switch (_toastState)
+    {
+      case ToastState.Showing:
+      {
+        float progress = Mathf.Clamp01(_toastStateElapsed / ToastShowDuration);
+        float eased = 1f - Mathf.Pow(1f - progress, 3f);
+        _toastCanvasGroup.alpha = eased;
+        UpdateToastPlacement(Mathf.Lerp(-8f, 0f, eased));
+        if (progress >= 1f)
+        {
+          _toastState = ToastState.Visible;
+          _toastStateElapsed = 0f;
+        }
+        break;
+      }
+      case ToastState.Visible:
+        UpdateToastPlacement(0f);
+        if (!_toastHovered)
+        {
+          _toastRemaining = Mathf.Max(0f, _toastRemaining - deltaTime);
+          _toastProgressFill.fillAmount = _toastRemaining / ToastVisibleDuration;
+          if (_toastRemaining <= 0f) DismissUpdateWarning();
+        }
+        break;
+      case ToastState.Hiding:
+      {
+        float progress = Mathf.Clamp01(_toastStateElapsed / ToastHideDuration);
+        _toastCanvasGroup.alpha = 1f - progress;
+        UpdateToastPlacement(0f);
+        if (progress >= 1f)
+        {
+          _toastState = ToastState.Hidden;
+          _toastLayer.gameObject.SetActive(false);
+        }
+        break;
+      }
+    }
+  }
+
+  private void SetToastHovered(bool hovered)
+  {
+    _toastHovered = hovered && _toastState == ToastState.Visible;
+  }
+
+  private void UpdateToastPlacement(float verticalOffset)
+  {
+    if (_rootRect == null || _toastPanel == null) return;
+
+    Rect canvasBounds = _rootRect.rect;
+    Rect panelBounds = _toastPanel.rect;
+    float desiredRight = canvasBounds.xMax - ToastScreenMargin;
+    float desiredBottom = canvasBounds.yMin + 112f;
+    if (TryGetNativeControlsScreenRect(out Rect controlsScreenRect)
+        && RectTransformUtility.ScreenPointToLocalPointInRectangle(
+          _rootRect,
+          new Vector2(controlsScreenRect.xMax, controlsScreenRect.yMax),
+          null,
+          out Vector2 nativeTopRight))
+    {
+      desiredRight = nativeTopRight.x;
+      desiredBottom = nativeTopRight.y + ToastControlsGap;
+    }
+
+    float right = Mathf.Clamp(
+      desiredRight,
+      canvasBounds.xMin + panelBounds.width + ToastScreenMargin,
+      canvasBounds.xMax - ToastScreenMargin);
+    float bottom = Mathf.Clamp(
+      desiredBottom + verticalOffset,
+      canvasBounds.yMin + ToastScreenMargin,
+      canvasBounds.yMax - panelBounds.height - ToastScreenMargin);
+    _toastPanel.anchoredPosition = new Vector2(right, bottom);
+  }
+
+  private bool TryGetNativeControlsScreenRect(out Rect screenRect)
+  {
+    screenRect = default;
+    scnEditor editor = scnEditor.instance;
+    if (editor == null) return false;
+
+    bool hasBounds = false;
+    IncludeNativeControl(editor.editorDifficultySelector?.transform as RectTransform, ref screenRect, ref hasBounds);
+    IncludeNativeControl(editor.buttonNoFail?.transform as RectTransform, ref screenRect, ref hasBounds);
+    IncludeNativeControl(editor.buttonAuto?.transform as RectTransform, ref screenRect, ref hasBounds);
+    return hasBounds;
+  }
+
+  private void IncludeNativeControl(RectTransform rect, ref Rect screenRect, ref bool hasBounds)
+  {
+    if (rect == null || !rect.gameObject.activeInHierarchy) return;
+
+    Canvas canvas = rect.GetComponentInParent<Canvas>();
+    Camera eventCamera = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+      ? canvas.worldCamera
+      : null;
+    rect.GetWorldCorners(_nativeControlCorners);
+    foreach (Vector3 corner in _nativeControlCorners)
+    {
+      Vector2 point = RectTransformUtility.WorldToScreenPoint(eventCamera, corner);
+      if (!hasBounds)
+      {
+        screenRect = new Rect(point, Vector2.zero);
+        hasBounds = true;
+        continue;
+      }
+
+      screenRect.xMin = Mathf.Min(screenRect.xMin, point.x);
+      screenRect.xMax = Mathf.Max(screenRect.xMax, point.x);
+      screenRect.yMin = Mathf.Min(screenRect.yMin, point.y);
+      screenRect.yMax = Mathf.Max(screenRect.yMax, point.y);
+    }
   }
 
   private void BindCancel(DownloadJobSnapshot job, Func<string, bool> onCancel)
@@ -359,6 +588,7 @@ internal sealed class DownloadOverlayView : IDisposable
     if (_disposed) return;
     _disposed = true;
     _cancelButton.onClick.RemoveAllListeners();
+    _toastDismissButton.onClick.RemoveAllListeners();
     if (_root != null)
     {
       UnityEngine.Object.Destroy(_root);
@@ -513,6 +743,12 @@ internal sealed class DownloadOverlayView : IDisposable
       ? job.Stage
       : FirstNonEmpty(job.Status, "working");
     return $"{label}: {message}";
+  }
+
+  private static bool IsCheckingUpdate(DownloadJobSnapshot job)
+  {
+    return string.Equals(job?.Stage, "Checking Update", StringComparison.OrdinalIgnoreCase)
+      || string.Equals(job?.Stage, "checking_update", StringComparison.OrdinalIgnoreCase);
   }
 
   private static Color StatusColor(string status)

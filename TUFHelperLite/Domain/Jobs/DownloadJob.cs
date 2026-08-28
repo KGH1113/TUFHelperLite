@@ -11,6 +11,7 @@ public sealed class DownloadJob
 {
   private readonly object _lock = new();
   private readonly CancellationTokenSource _cts = new();
+  private readonly ManualResetEventSlim _presentationObserved = new(false);
 
   private string _status = "queued";
   private string _stage = "queued";
@@ -41,6 +42,7 @@ public sealed class DownloadJob
   private long _errorAvailableBytes;
   private long _errorRequiredBytes;
   private long _updatedAtUnixMs;
+  private bool _hasPresentationInfo;
 
   public DownloadJob(string kind, string levelId, string sourceUrl, string cacheKey, bool openAfterDownload)
   {
@@ -81,6 +83,14 @@ public sealed class DownloadJob
       {
         return _status == "queued";
       }
+    }
+  }
+
+  internal bool HasPresentationInfo
+  {
+    get
+    {
+      lock (_lock) return _hasPresentationInfo;
     }
   }
 
@@ -139,6 +149,65 @@ public sealed class DownloadJob
     lock (_lock)
     {
       _difficultyId = difficultyId;
+      Touch();
+    }
+  }
+
+  public void SetResolvedLevel(
+    string levelId,
+    string sourceUrl,
+    string song,
+    string artist,
+    string creator,
+    int difficultyId)
+  {
+    lock (_lock)
+    {
+      if (IsTerminalStatus(_status)) return;
+
+      LevelId = levelId;
+      SourceUrl = sourceUrl;
+      _song = song;
+      _artist = artist;
+      _creator = creator;
+      _difficultyId = difficultyId;
+      _status = "running";
+      _stage = "Checking Update";
+      _message = "Checking Update";
+      _progress = -1;
+      _bytesReceived = -1;
+      _totalBytes = -1;
+      _hasPresentationInfo = true;
+      Touch();
+    }
+  }
+
+  internal void MarkPresentationObserved()
+  {
+    if (HasPresentationInfo) _presentationObserved.Set();
+  }
+
+  internal bool WaitForPresentationObserved(TimeSpan timeout)
+  {
+    return _presentationObserved.Wait(timeout, Token);
+  }
+
+  public void RecordUpdateCheck(
+    DownloadedLevelItem item,
+    string updateState,
+    string installedFileId,
+    string availableFileId,
+    string availableUpdatedAtUtc)
+  {
+    lock (_lock)
+    {
+      if (IsTerminalStatus(_status)) return;
+
+      _updateState = updateState;
+      _updateStateExpiresAtUtc = item?.UpdateStateExpiresAtUtc;
+      _installedFileId = installedFileId;
+      _availableFileId = availableFileId;
+      _availableUpdatedAtUtc = availableUpdatedAtUtc;
       Touch();
     }
   }

@@ -2,14 +2,18 @@ using System;
 using TUFHelperLite.App;
 using TUFHelperLite.Domain.Jobs;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace TUFHelperLite.Presentation.Unity;
 
 public sealed class DownloadStatusOverlay : MonoBehaviour
 {
   private const float SnapshotInterval = 0.1f;
+  private const float ToastDockWaitSeconds = 2f;
 
   private static DownloadStatusOverlay _instance;
+  private static readonly object PendingWarningLock = new();
+  private static UpdateWarningToastModel _pendingWarning;
 
   private DownloadOverlayView _view;
   private DownloadJobSnapshot _job;
@@ -17,6 +21,8 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
   private float _displayedProgress;
   private string _displayedJobId;
   private string _displayedDiskWarningJobId;
+  private bool _awaitingEditorToast;
+  private float _toastDockDeadline;
 
   public static void EnsureInstalled()
   {
@@ -41,7 +47,32 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
       return;
     }
 
+    ClearPendingWarning();
     if (_instance != null) Destroy(_instance.gameObject);
+  }
+
+  internal static void ShowCheckingUpdate()
+  {
+    RunOnMainThread(() => _instance?._view?.ShowCheckingUpdate());
+  }
+
+  internal static void ShowUpdateWarning(UpdateWarningToastModel model)
+  {
+    RunOnMainThread(() => _instance?._view?.ShowUpdateWarning(model));
+  }
+
+  internal static void QueueUpdateWarning(UpdateWarningToastModel model)
+  {
+    lock (PendingWarningLock)
+    {
+      _pendingWarning = model ?? new UpdateWarningToastModel();
+    }
+  }
+
+  internal static void DismissUpdateWarning()
+  {
+    ClearPendingWarning();
+    RunOnMainThread(() => _instance?._view?.DismissUpdateWarning());
   }
 
   private void Start()
@@ -58,8 +89,20 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
     }
   }
 
+  private void OnEnable()
+  {
+    SceneManager.activeSceneChanged += OnActiveSceneChanged;
+  }
+
+  private void OnDisable()
+  {
+    SceneManager.activeSceneChanged -= OnActiveSceneChanged;
+  }
+
   private void Update()
   {
+    TryPresentPendingWarning();
+
     if (Time.unscaledTime >= _nextSnapshotAt)
     {
       _nextSnapshotAt = Time.unscaledTime + SnapshotInterval;
@@ -95,8 +138,12 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
           _displayedProgress = _job.Progress >= 0 ? Mathf.Clamp01((float)_job.Progress) : 0f;
         }
 
-        _view?.Bind(_job, LevelJobService.Cancel);
-        _view?.SetVisible(true);
+        if (_view != null)
+        {
+          _view.Bind(_job, LevelJobService.Cancel);
+          _view.SetVisible(true);
+          LevelJobService.MarkPresentationShown(_job.JobId);
+        }
       }
     }
 
@@ -121,8 +168,68 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
     _instance = null;
   }
 
+  private void OnActiveSceneChanged(Scene previousScene, Scene nextScene)
+  {
+    _view?.ResetTransientUi();
+    _awaitingEditorToast = false;
+    if (!string.Equals(nextScene.name, "scnEditor", StringComparison.Ordinal))
+    {
+      ClearPendingWarning();
+    }
+  }
+
+  private void TryPresentPendingWarning()
+  {
+    if (!HasPendingWarning() || _view == null) return;
+    if (!string.Equals(SceneManager.GetActiveScene().name, "scnEditor", StringComparison.Ordinal)) return;
+
+    if (!_awaitingEditorToast)
+    {
+      _awaitingEditorToast = true;
+      _toastDockDeadline = Time.unscaledTime + ToastDockWaitSeconds;
+    }
+
+    if (!_view.HasNativeToastAnchor() && Time.unscaledTime < _toastDockDeadline) return;
+    UpdateWarningToastModel warning = TakePendingWarning();
+    if (warning == null) return;
+
+    _awaitingEditorToast = false;
+    _view.ShowUpdateWarning(warning);
+  }
+
+  private static bool HasPendingWarning()
+  {
+    lock (PendingWarningLock) return _pendingWarning != null;
+  }
+
+  private static UpdateWarningToastModel TakePendingWarning()
+  {
+    lock (PendingWarningLock)
+    {
+      UpdateWarningToastModel warning = _pendingWarning;
+      _pendingWarning = null;
+      return warning;
+    }
+  }
+
+  private static void ClearPendingWarning()
+  {
+    lock (PendingWarningLock) _pendingWarning = null;
+  }
+
   private static bool IsDiskSpaceFailure(DownloadJobSnapshot job)
   {
     return string.Equals(job?.ErrorCode, "insufficient_disk_space", StringComparison.Ordinal);
+  }
+
+  private static void RunOnMainThread(Action action)
+  {
+    if (global::AdofaiIpc.AdofaiIpc.IsMainThread)
+    {
+      action();
+      return;
+    }
+
+    global::AdofaiIpc.AdofaiIpc.RunOnMainThread(action);
   }
 }

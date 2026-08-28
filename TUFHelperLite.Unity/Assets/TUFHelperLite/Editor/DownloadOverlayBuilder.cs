@@ -159,6 +159,7 @@ namespace TUFHelperLite.Editor
 
             CreateSelectionModal(root.transform, panelSprite, fallbackIcon, font);
             CreateDiskSpaceWarningModal(root.transform, panelSprite, font);
+            CreateUpdateToast(root.transform, panelSprite, gradientSprite, font);
 
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
             UnityEngine.Object.DestroyImmediate(root);
@@ -175,6 +176,7 @@ namespace TUFHelperLite.Editor
 
             GameObject preview = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
             preview.name = "DownloadOverlay";
+            EnsurePreviewDriver(preview);
             Selection.activeGameObject = preview;
             EditorGUIUtility.PingObject(prefab);
             EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
@@ -535,6 +537,99 @@ namespace TUFHelperLite.Editor
                 Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
 
             layer.SetActive(false);
+        }
+
+        private static void CreateUpdateToast(
+            Transform parent,
+            Sprite panelSprite,
+            Sprite gradientSprite,
+            TMP_FontAsset font)
+        {
+            GameObject layer = new GameObject("UpdateToastLayer", typeof(RectTransform), typeof(CanvasGroup));
+            layer.transform.SetParent(parent, false);
+            SetRect(layer.GetComponent<RectTransform>(), Vector2.zero, Vector2.one,
+                new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+
+            CanvasGroup canvasGroup = layer.GetComponent<CanvasGroup>();
+            canvasGroup.alpha = 1f;
+            canvasGroup.interactable = true;
+            canvasGroup.blocksRaycasts = true;
+
+            Image panel = CreateImage("ToastPanel", layer.transform, panelSprite, new Color32(7, 7, 10, 242));
+            SetRect(panel.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(1f, 0f), new Vector2(936f, -428f), new Vector2(580f, 142f));
+            panel.type = Image.Type.Sliced;
+            panel.raycastTarget = true;
+
+            Outline outline = panel.gameObject.AddComponent<Outline>();
+            outline.effectColor = new Color(1f, 1f, 1f, 0.12f);
+            outline.effectDistance = new Vector2(1f, -1f);
+
+            Image topSheen = CreateImage("TopSheen", panel.transform, null, new Color(1f, 1f, 1f, 0.12f));
+            SetRect(topSheen.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f),
+                new Vector2(0.5f, 1f), new Vector2(0f, -1f), new Vector2(-18f, 1f));
+
+            Image accent = CreateImage("Accent", panel.transform, panelSprite, new Color32(68, 191, 255, 255));
+            SetRect(accent.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f),
+                new Vector2(0f, 1f), new Vector2(20f, -24f), new Vector2(8f, 8f));
+            accent.type = Image.Type.Sliced;
+
+            CreateText("TitleText", panel.transform, font, "Update Available", 26f, FontStyles.Normal,
+                new Color32(246, 246, 248, 255), TextAlignmentOptions.MidlineLeft,
+                new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
+                new Vector2(40f, -15f), new Vector2(480f, 36f));
+
+            TextMeshProUGUI message = CreateText("MessageText", panel.transform, font,
+                "A newer version of this level is available. Clears submitted with this version may not be accepted.",
+                18f, FontStyles.Normal, new Color32(174, 177, 187, 255), TextAlignmentOptions.TopLeft,
+                new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
+                new Vector2(20f, -57f), new Vector2(524f, 60f));
+            message.textWrappingMode = TextWrappingModes.Normal;
+            message.overflowMode = TextOverflowModes.Ellipsis;
+
+            Image dismissImage = CreateImage("DismissButton", panel.transform, panelSprite, Color.white);
+            SetRect(dismissImage.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f),
+                new Vector2(1f, 1f), new Vector2(-12f, -12f), new Vector2(34f, 34f));
+            dismissImage.type = Image.Type.Sliced;
+            dismissImage.raycastTarget = true;
+            Button dismissButton = dismissImage.gameObject.AddComponent<Button>();
+            dismissButton.targetGraphic = dismissImage;
+            ColorBlock colors = dismissButton.colors;
+            colors.normalColor = new Color(1f, 1f, 1f, 0.04f);
+            colors.highlightedColor = new Color(1f, 1f, 1f, 0.12f);
+            colors.pressedColor = new Color(1f, 1f, 1f, 0.18f);
+            colors.selectedColor = new Color(1f, 1f, 1f, 0.09f);
+            colors.disabledColor = new Color(1f, 1f, 1f, 0.02f);
+            colors.fadeDuration = 0.08f;
+            dismissButton.colors = colors;
+
+            CreateText("Icon", dismissButton.transform, font, "×", 25f, FontStyles.Normal,
+                new Color32(168, 172, 182, 255), TextAlignmentOptions.Center,
+                Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+
+            Image progressTrack = CreateImage("ProgressTrack", panel.transform, null, new Color(1f, 1f, 1f, 0.08f));
+            SetRect(progressTrack.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f),
+                new Vector2(0.5f, 1f), new Vector2(0f, -2f), new Vector2(-16f, 3f));
+            Mask progressMask = progressTrack.gameObject.AddComponent<Mask>();
+            progressMask.showMaskGraphic = true;
+
+            Image progressFill = CreateImage("ProgressFill", progressTrack.transform, gradientSprite, Color.white);
+            SetRect(progressFill.rectTransform, Vector2.zero, Vector2.one,
+                new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+            progressFill.type = Image.Type.Filled;
+            progressFill.fillMethod = Image.FillMethod.Horizontal;
+            progressFill.fillOrigin = 0;
+            progressFill.fillAmount = 1f;
+
+            layer.SetActive(false);
+        }
+
+        private static void EnsurePreviewDriver(GameObject preview)
+        {
+            if (preview.GetComponent<DownloadOverlayPreviewDriver>() == null)
+            {
+                preview.AddComponent<DownloadOverlayPreviewDriver>();
+            }
         }
 
         private static Button CreateSelectionRowTemplate(Transform parent, Sprite panelSprite, TMP_FontAsset font)

@@ -496,6 +496,22 @@ internal static class Program
       {
         Kind = "level.download"
       }));
+      DownloadJob gatedOpenJob = new("level.open-from-id", "99", null, "tuf-99", true);
+      CheckFalse("id open is hidden before presentation metadata", LevelJobService.ShouldDisplayInGame(gatedOpenJob));
+      gatedOpenJob.BeginRunning();
+      gatedOpenJob.SetResolvedLevel(
+        "99", "https://cdn.example/99.zip", "Resolved Song", "Resolved Artist", "Resolved Creator", 17);
+      CheckTrue("id open is visible after presentation metadata", LevelJobService.ShouldDisplayInGame(gatedOpenJob));
+      DownloadJobSnapshot resolvedSnapshot = gatedOpenJob.Snapshot();
+      CheckString("resolved presentation starts update check", "Checking Update", resolvedSnapshot.Stage);
+      CheckString("resolved presentation includes song", "Resolved Song", resolvedSnapshot.Song);
+      CheckString("resolved presentation includes creator", "Resolved Creator", resolvedSnapshot.Creator);
+      CheckLong("resolved presentation includes difficulty", 17, resolvedSnapshot.DifficultyId);
+      gatedOpenJob.MarkPresentationObserved();
+      CheckTrue("resolved presentation acknowledgement releases worker",
+        gatedOpenJob.WaitForPresentationObserved(TimeSpan.Zero));
+      DownloadJob directUrlJob = new("level.open-from-url", null, "https://cdn.example/direct.zip", "url-direct", true);
+      CheckTrue("direct URL open remains visible without metadata gate", LevelJobService.ShouldDisplayInGame(directUrlJob));
       string root = DownloadCachePaths.GetDownloadRoot();
       string directory = Path.Combine(root, "tuf-100");
       string levelPath = CreateLevel(root, "tuf-100", "chart.adofai");
@@ -555,6 +571,25 @@ internal static class Program
       CheckString("known revision update check state", "update_available", checkJob.Snapshot().UpdateState);
       CheckLong("known revision avoids payload download", 0, stagingDownloads);
       CheckString("update availability survives manifest reload", "update_available", DownloadLibraryService.GetItem(100).UpdateState);
+      DownloadJob repeatedOpenCheckJob = new("level.open-from-id", "100", null, "tuf-100", true);
+      LevelOpenUpdateCheckResult repeatedOpenCheck = LevelUpdateService.CheckForOpen(100, available, repeatedOpenCheckJob);
+      CheckString("known available revision is reused for open", "update_available", repeatedOpenCheck.State);
+      CheckLong("known available revision avoids repeated payload download", 0, stagingDownloads);
+
+      TUFHelperLite.Infrastructure.Tuforums.TufLevelInfo newInstallRemote = new()
+      {
+        Id = 103,
+        DiffId = 11,
+        Song = "New Install",
+        Artist = "Artist",
+        Creator = "Creator",
+        FileId = "new-install-v1",
+        DownloadLink = "https://cdn.example/103.zip"
+      };
+      DownloadJob newInstallJob = new("level.open-from-id", "103", null, "tuf-103", true);
+      LevelOpenUpdateCheckResult newInstallCheck = LevelUpdateService.CheckForOpen(103, newInstallRemote, newInstallJob);
+      CheckString("new install update check is not installed", "not_installed", newInstallCheck.State);
+      CheckLong("new install check does not stage latest payload", 0, stagingDownloads);
 
       DownloadLibraryService.RebuildSummaryForTests();
       DownloadLibrarySummary summaryBefore = DownloadLibraryService.GetSummary();
@@ -573,6 +608,10 @@ internal static class Program
       CheckLong("level update preserves downloaded timestamp", before.DownloadedAtUnixMs, after.DownloadedAtUnixMs);
       CheckLong("level update preserves summary count", summaryBefore.LevelCount, summaryAfter.LevelCount);
       CheckLong("level update adjusts summary size", after.SizeBytes, summaryAfter.TotalSizeBytes);
+      DownloadJob currentOpenCheckJob = new("level.open-from-id", "100", null, "tuf-100", true);
+      LevelOpenUpdateCheckResult currentOpenCheck = LevelUpdateService.CheckForOpen(100, available, currentOpenCheckJob);
+      CheckString("current revision open check is up to date", "up_to_date", currentOpenCheck.State);
+      CheckLong("current revision open check avoids payload download", 1, stagingDownloads);
 
       string legacyDirectory = Path.Combine(root, "tuf-101");
       string legacyLevel = CreateLevel(root, "tuf-101", "chart.adofai");
@@ -654,6 +693,43 @@ internal static class Program
       testNow = testNow.AddDays(1);
       CheckString("available update ignores check ttl", "update_available", DownloadLibraryService.GetItem(102).UpdateState);
       CheckString("available update omits expiry", null, DownloadLibraryService.GetItem(102).UpdateStateExpiresAtUtc);
+
+      string failedCheckDirectory = Path.Combine(root, "tuf-104");
+      string failedCheckLevel = CreateLevel(root, "tuf-104", "chart.adofai");
+      File.WriteAllText(failedCheckLevel, "legacy payload requiring comparison");
+      DownloadLibraryService.RecordDownload(new LevelDownloadResult
+      {
+        Directory = failedCheckDirectory,
+        SelectedLevelPath = failedCheckLevel,
+        LevelPaths = new List<string> { failedCheckLevel },
+        FromCache = true
+      }, installed, "104");
+      TUFHelperLite.Infrastructure.Tuforums.TufLevelInfo failedCheckRemote = new()
+      {
+        Id = 104,
+        DiffId = 12,
+        Song = "Failed Check",
+        Artist = "Artist",
+        Creator = "Creator",
+        FileId = "failed-check-v2",
+        DownloadLink = "https://cdn.example/104.zip"
+      };
+      LevelUpdateService.SetDependenciesForTests(
+        _ => failedCheckRemote,
+        (_, _, _, _) => throw new IOException("comparison failed"));
+      DownloadJob failedOpenCheckJob = new("level.open-from-id", "104", null, "tuf-104", true);
+      try
+      {
+        LevelUpdateService.CheckForOpen(104, failedCheckRemote, failedOpenCheckJob);
+        Failures.Add("failed open update check propagates: expected exception");
+      }
+      catch (IOException exception)
+      {
+        CheckString("failed open update check propagates", "comparison failed", exception.Message);
+      }
+      CheckFalse("failed open update check does not complete job", failedOpenCheckJob.Snapshot().Done);
+      CheckString("failed open update check remains checking update", "Checking Update", failedOpenCheckJob.Snapshot().Stage);
+      Directory.Delete(failedCheckDirectory, true);
 
       LevelUpdateService.SetDependenciesForTests(
         id => id switch
