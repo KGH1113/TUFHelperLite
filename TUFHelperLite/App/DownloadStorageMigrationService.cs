@@ -657,7 +657,12 @@ public static class DownloadStorageMigrationService
     byte[] leftHash = sha.ComputeHash(leftStream);
     using FileStream rightStream = File.OpenRead(right);
     byte[] rightHash = sha.ComputeHash(rightStream);
-    return leftHash.SequenceEqual(rightHash);
+    if (leftHash.Length != rightHash.Length) return false;
+    for (int index = 0; index < leftHash.Length; index++)
+    {
+      if (leftHash[index] != rightHash[index]) return false;
+    }
+    return true;
   }
 
   private static void UpdateProgress(string state, int files, int filesTotal, long bytes, long bytesTotal, string message)
