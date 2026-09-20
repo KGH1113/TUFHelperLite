@@ -65,7 +65,7 @@ Required at runtime:
 
 - A Dance of Fire and Ice
 - UnityModManager
-- AdofaiIpc 0.3.0 or newer. A missing dependency is installed automatically. Disabled,
+- AdofaiIpc 0.4.0 or newer. A missing dependency is installed automatically. Disabled,
   outdated, installation-failure, and load-failure states are shown by the shared AdofaiIpc dialog.
 - TUFHelperLite installed under the ADOFAI `Mods/TUFHelperLite` directory
 
@@ -93,7 +93,7 @@ The package command creates both `build/TUFHelperLite.zip` and
 `build/TUFHelperLite.zip.sha256`. Upload both files, without renaming them, to a
 stable GitHub release tagged `vX.Y.Z`; `X.Y.Z` must match `Info.json`.
 
-TUFHelperLite 0.1.8 uses a fixed launcher and versioned runtimes. The launcher
+TUFHelperLite 0.1.9 uses a fixed launcher and versioned runtimes. The launcher
 checks the latest stable GitHub release before loading the core, verifies the
 ZIP and checksum, and can activate a newer runtime in the same game launch.
 Network or verification failures leave the current runtime untouched.
@@ -102,7 +102,7 @@ The release ZIP intentionally keeps the flat layout accepted by the official
 0.1.2 updater. An existing 0.1.2 installation can therefore download 0.1.5
 automatically; the 0.1.4 migration bridge then prepares the fixed dependency
 shim and launcher and asks for one full game restart. If AdofaiIpc is older than
-0.3.0, the shared dialog also asks for a one-time AdofaiIpc reinstall before that
+0.4.0, the shared dialog also asks for a one-time AdofaiIpc reinstall before that
 restart. New installations seed the versioned runtime and load normally in the
 same launch.
 
@@ -110,6 +110,11 @@ The published 0.1.3 updater cannot complete this transition. Users who manually
 installed 0.1.3 must manually reinstall TUFHelperLite 0.1.4 once. Releases after
 0.1.4 are handled by the fixed launcher without another manual reinstall. The
 core does not own a separate IPC compatibility modal or placeholder namespace.
+
+### 0.1.9 highlights
+
+- Update the AdofaiIpc integration and bundled bootstrap artifacts to 0.4.0.
+- Require AdofaiIpc 0.4.0 or newer for the dependency bootstrap transition.
 
 ### 0.1.8 highlights
 

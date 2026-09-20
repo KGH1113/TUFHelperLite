@@ -1,5 +1,5 @@
 {
   "AssemblyName": "Assets/AdofaiIpc/TUFHelperLite.Launcher.dll",
   "EntryMethod": "TUFHelperLite.Launcher.EntryPoint.Load",
-  "MinimumAdofaiIpcVersion": "0.3.0"
+  "MinimumAdofaiIpcVersion": "0.4.0"
 }
