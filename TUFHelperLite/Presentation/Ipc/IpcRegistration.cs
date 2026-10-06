@@ -1,5 +1,10 @@
 using System;
-using AdofaiIpc.Core;
+using System.Collections.Generic;
+using System.Threading;
+using TUFHelperLite.Domain.Ports;
+using AdofaiIpc;
+using System.IO;
+using System.Linq;
 using Newtonsoft.Json.Linq;
 using TUFHelperLite.App;
 using TUFHelperLite.Domain.Jobs;
@@ -10,17 +15,39 @@ namespace TUFHelperLite.Presentation.Ipc;
 public static class IpcRegistration
 {
   private static global::AdofaiIpc.AdofaiIpcNamespace _namespace;
+  private static readonly ActivityChangeBuffer Changes = new();
+  private static readonly object PublisherGate = new();
+  private static readonly Dictionary<string, string> FolderOwners = new();
+  private static readonly Dictionary<string, string> SelectionOwners = new();
+  private static readonly Dictionary<string, string[]> LibraryInterests = new();
+  private static readonly HashSet<string> Subscribers = new();
+  private static System.Threading.Timer _publisher;
+  private static volatile bool _ready;
+  private static int _publishing;
+
+  private sealed class MainThreadDispatcher : TUFHelperLite.App.Ports.IMainThreadDispatcher
+  {
+    public void Dispatch(Action action) => global::AdofaiIpc.AdofaiIpc.RunOnMainThread(action);
+  }
 
   public static void Register()
   {
     _namespace = RegisterNamespace();
     RegisterHandlers(_namespace);
+    ActivityChanges.Sink = Changes;
+    DownloadFolderPickerCoordinator.MainThread = new MainThreadDispatcher();
+    DownloadFolderPickerCoordinator.FolderPicker = new TUFHelperLite.Presentation.Unity.NativeFolderPicker();
+    _namespace.PeerSubscribed += peer => { lock (PublisherGate) Subscribers.Add(peer.PeerId); if (_ready) SendSnapshot(peer.PeerId); };
+    _namespace.PeerDisconnected += peer => { lock (PublisherGate) { Subscribers.Remove(peer.PeerId); LibraryInterests.Remove(peer.PeerId); foreach (string token in new List<string>(SelectionOwners.Keys)) if (SelectionOwners[token] == peer.PeerId) SelectionOwners.Remove(token); foreach (string id in new List<string>(FolderOwners.Keys)) if (FolderOwners[id] == peer.PeerId) FolderOwners.Remove(id); } };
+    _publisher = new System.Threading.Timer(_ => PublishChanges(), null, 100, 100);
     ModStatus.SetNormal();
   }
 
   public static void MarkReady()
   {
+    _ready = true;
     _namespace.MarkReady();
+    _namespace.Publish("snapshot", Snapshot());
   }
 
   public static void MarkError(Exception exception)
@@ -34,6 +61,11 @@ public static class IpcRegistration
   {
     try
     {
+      _ready = false;
+      ActivityChanges.Sink = null;
+      _publisher?.Dispose();
+      _publisher = null;
+      lock (PublisherGate) { FolderOwners.Clear(); SelectionOwners.Clear(); LibraryInterests.Clear(); Subscribers.Clear(); }
       global::AdofaiIpc.AdofaiIpc.UnregisterNamespace("tufhelperlite");
       _namespace = null;
     }
@@ -45,35 +77,116 @@ public static class IpcRegistration
 
   private static void RegisterHandlers(global::AdofaiIpc.AdofaiIpcNamespace ipc)
   {
-    ipc.Register("health", Health);
-    ipc.Register("level.open-from-id", OpenFromId);
-    ipc.Register("level.open-from-url", OpenFromUrl);
-    ipc.Register("level.download", Download);
-    ipc.Register("level.status", Status);
-    ipc.Register("level.jobs", Jobs);
-    ipc.Register("level.downloaded-ids", DownloadedIds);
-    ipc.Register("level.downloaded-page", DownloadedPage);
-    ipc.Register("level.downloaded-summary", DownloadedSummary);
-    ipc.Register("level.update.check", UpdateCheck);
-    ipc.Register("level.update.start", UpdateStart);
-    ipc.Register("level.update.check-all.start", UpdateCheckAllStart);
-    ipc.Register("level.update.check-all.status", UpdateCheckAllStatus);
-    ipc.Register("level.update.check-all.cancel", UpdateCheckAllCancel);
-    ipc.Register("level.update.all.start", UpdateAllStart);
-    ipc.Register("level.update.all.status", UpdateAllStatus);
-    ipc.Register("level.update.all.cancel", UpdateAllCancel);
-    ipc.Register("level.cancel", Cancel);
-    ipc.Register("level.select", Select);
-    ipc.Register("storage.get", StorageGet);
-    ipc.Register("storage.folder-pick.start", StorageFolderPickStart);
-    ipc.Register("storage.folder-pick.status", StorageFolderPickStatus);
-    ipc.Register("storage.migration.start", StorageMigrationStart);
-    ipc.Register("storage.migration.status", StorageMigrationStatus);
-    ipc.Register("storage.migration.retry", StorageMigrationRetry);
-    ipc.Register("storage.change.start", StorageChangeStart);
-    ipc.Register("storage.change.status", StorageChangeStatus);
-    ipc.Register("storage.change.retry", StorageChangeRetry);
-    ipc.Register("storage.change.cancel", StorageChangeCancel);
+    ipc.RegisterCommand("snapshot.refresh", command => command.Reply("snapshot", Snapshot()));
+    ipc.RegisterCommand("level.open-from-id", command => command.Reply("job.started", OpenFromId(command)));
+    ipc.RegisterCommand("level.open-from-url", command => command.Reply("job.started", OpenFromUrl(command)));
+    ipc.RegisterCommand("level.download", command => command.Reply("job.started", Download(command)));
+    ipc.RegisterCommand("library.watch", command =>
+    {
+      string[] ids = command.Payload?["ids"]?.ToObject<string[]>() ?? Array.Empty<string>();
+      if (ids.Length > 500 || ids.Any(id => !int.TryParse(id, out int number) || number <= 0)) { command.Reject("invalid_library_interest", "Choose at most 500 valid level IDs."); return; }
+      ids = ids.Distinct().ToArray();
+      lock (PublisherGate) LibraryInterests[command.PeerId] = ids;
+      command.Reply("library.membership", new { LevelIds = DownloadedMembership(ids) });
+    });
+    ipc.RegisterCommand("library.page", command =>
+    {
+      try { command.Reply("library.page", DownloadedPage(command)); }
+      catch (InvalidOperationException error) when (error.Message == "download_library_cursor_stale")
+      { command.Reject("download_library_cursor_stale", "The download library changed. Reload it to continue."); }
+    });
+    ipc.RegisterCommand("level.update.check", command => command.Reply("job.started", UpdateCheck(command)));
+    ipc.RegisterCommand("level.update.start", command => command.Reply("job.started", UpdateStart(command)));
+    ipc.RegisterCommand("level.update.check-all.start", command => command.Reply("batch.changed", UpdateCheckAllStart(command)));
+    ipc.RegisterCommand("level.update.check-all.cancel", command => command.Reply("batch.changed", UpdateCheckAllCancel(command)));
+    ipc.RegisterCommand("level.update.all.start", command => command.Reply("batch.changed", UpdateAllStart(command)));
+    ipc.RegisterCommand("level.update.all.cancel", command => command.Reply("batch.changed", UpdateAllCancel(command)));
+    ipc.RegisterCommand("level.cancel", command => command.Reply("job.cancelled", Cancel(command)));
+    ipc.RegisterCommand("level.select", command => command.Reply("level.selected", Select(command)));
+    ipc.RegisterCommand("storage.folder-pick.start", command =>
+    {
+      DownloadFolderPickerSnapshot snapshot = (DownloadFolderPickerSnapshot)StorageFolderPickStart(command);
+      if (snapshot.State == "picking") lock (PublisherGate) FolderOwners[snapshot.OperationId] = command.PeerId;
+      command.Reply("folder.pick-started", snapshot);
+      Changes.Changed(ActivityTopic.Folder);
+    });
+    ipc.RegisterCommand("storage.migration.start", command => command.Reply("storage.changed", StorageMigrationStart(command)));
+    ipc.RegisterCommand("storage.migration.retry", command => command.Reply("storage.changed", StorageMigrationRetry(command)));
+    ipc.RegisterCommand("storage.change.start", command => command.Reply("storage.changed", StorageChangeStart(command)));
+    ipc.RegisterCommand("storage.change.retry", command => command.Reply("storage.changed", StorageChangeRetry(command)));
+    ipc.RegisterCommand("storage.change.cancel", command => command.Reply("storage.changed", StorageChangeCancel(command)));
+
+  }
+
+  private static object Snapshot() => new
+  {
+    Health = Health(null),
+    Jobs = LevelJobService.List(),
+    LevelIds = Array.Empty<string>(),
+    Storage = DownloadStorageMigrationService.GetStatus(),
+    Batch = LevelUpdateCheckBatchService.GetStatus(),
+    Summary = SafeSummary()
+  };
+
+  private static string[] DownloadedMembership(string[] ids)
+  {
+    string root = DownloadCachePaths.GetDownloadRoot();
+    return ids.Where(id =>
+    {
+      string path = Path.Combine(root, DownloadCachePaths.BuildTufCacheKey(id));
+      return Directory.Exists(path) && Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Any(file => string.Equals(Path.GetExtension(file), ".adofai", StringComparison.OrdinalIgnoreCase));
+    }).ToArray();
+  }
+
+  private static object SafeSummary()
+  {
+    try { return DownloadLibraryService.GetSummary(); }
+    catch { return null; } // Library reads can be temporarily blocked during storage cutover.
+  }
+
+  private static void SendSnapshot(string peerId)
+  {
+    try { _namespace?.SendToPeer(peerId, "snapshot", Snapshot()); }
+    catch (Exception exception) { Main.Instance?.LogException(exception); }
+  }
+
+  private static void PublishChanges()
+  {
+    if (!_ready) return;
+    lock (PublisherGate) if (Subscribers.Count == 0) return;
+    if (Interlocked.Exchange(ref _publishing, 1) != 0) return;
+    ActivityTopic dirty = ActivityTopic.None;
+    try
+    {
+      dirty = Changes.Drain();
+      global::AdofaiIpc.AdofaiIpcNamespace ipc = _namespace;
+      if (ipc == null) return;
+      if ((dirty & ActivityTopic.Jobs) != 0) ipc.Publish("jobs.changed", new { Jobs = LevelJobService.List() });
+      if ((dirty & ActivityTopic.Library) != 0)
+      {
+        ipc.Publish("library.changed", new { Summary = SafeSummary() });
+        KeyValuePair<string, string[]>[] interests;
+        lock (PublisherGate) interests = new List<KeyValuePair<string, string[]>>(LibraryInterests).ToArray();
+        foreach (KeyValuePair<string, string[]> interest in interests) ipc.SendToPeer(interest.Key, "library.membership", new { LevelIds = DownloadedMembership(interest.Value) });
+      }
+      if ((dirty & ActivityTopic.Storage) != 0) ipc.Publish("storage.changed", DownloadStorageMigrationService.GetStatus());
+      if ((dirty & ActivityTopic.Batch) != 0) ipc.Publish("batch.changed", LevelUpdateCheckBatchService.GetStatus());
+      if ((dirty & ActivityTopic.Folder) != 0)
+      {
+        KeyValuePair<string, string>[] owners;
+        lock (PublisherGate) owners = new List<KeyValuePair<string, string>>(FolderOwners).ToArray();
+        foreach (KeyValuePair<string, string> owner in owners)
+        {
+          DownloadFolderPickerSnapshot snapshot = DownloadFolderPickerCoordinator.GetStatus(owner.Key);
+          if (snapshot.State == "picking") continue;
+          if (!string.IsNullOrEmpty(snapshot.SelectionToken)) lock (PublisherGate) { SelectionOwners.Clear(); SelectionOwners[snapshot.SelectionToken] = owner.Value; }
+          ipc.SendToPeer(owner.Value, "folder.selection", snapshot);
+          lock (PublisherGate) FolderOwners.Remove(owner.Key);
+        }
+      }
+    }
+    catch (Exception exception) { Changes.Changed(dirty); Main.Instance?.LogException(exception); }
+    finally { Volatile.Write(ref _publishing, 0); }
   }
 
   private static global::AdofaiIpc.AdofaiIpcNamespace RegisterNamespace()
@@ -94,7 +207,7 @@ public static class IpcRegistration
       });
   }
 
-  private static object Health(IpcRequest request)
+  private static object Health(IpcCommand request)
   {
     return new HealthResponse
     {
@@ -114,94 +227,56 @@ public static class IpcRegistration
     };
   }
 
-  private static object OpenFromId(IpcRequest request)
+  private static object OpenFromId(IpcCommand request)
   {
-    OpenLevelByIdRequest body = ReadParams<OpenLevelByIdRequest>(request);
+    OpenLevelByIdRequest body = ReadPayload<OpenLevelByIdRequest>(request);
 
     return LevelJobService.StartOpenFromId(body?.Id, body == null || body.OpenAfterDownload);
   }
 
-  private static object OpenFromUrl(IpcRequest request)
+  private static object OpenFromUrl(IpcCommand request)
   {
-    OpenLevelByUrlRequest body = ReadParams<OpenLevelByUrlRequest>(request);
+    OpenLevelByUrlRequest body = ReadPayload<OpenLevelByUrlRequest>(request);
 
     return LevelJobService.StartOpenFromUrl(body?.Url, body == null || body.OpenAfterDownload);
   }
 
-  private static object Download(IpcRequest request)
+  private static object Download(IpcCommand request)
   {
-    DownloadLevelRequest body = ReadParams<DownloadLevelRequest>(request);
+    DownloadLevelRequest body = ReadPayload<DownloadLevelRequest>(request);
 
     return LevelJobService.StartDownload(body?.Url, body?.LevelId);
   }
 
-  private static object Status(IpcRequest request)
+  private static object DownloadedPage(IpcCommand request)
   {
-    JobStatusRequest body = ReadParams<JobStatusRequest>(request);
-    DownloadJobSnapshot snapshot = LevelJobService.Get(body?.JobId);
-
-    if (snapshot == null)
-    {
-      throw new InvalidOperationException(string.Concat("Job not found: ", body?.JobId));
-    }
-
-    return snapshot;
-  }
-
-  private static object Jobs(IpcRequest request)
-  {
-    return new JobListResponse
-    {
-      Jobs = LevelJobService.List()
-    };
-  }
-
-  private static object DownloadedIds(IpcRequest request)
-  {
-    return new DownloadedLevelIdsResponse
-    {
-      LevelIds = LevelArchiveDownloader.GetDownloadedLevelIds()
-    };
-  }
-
-  private static object DownloadedPage(IpcRequest request)
-  {
-    DownloadedLevelPageRequest body = ReadParams<DownloadedLevelPageRequest>(request);
+    DownloadedLevelPageRequest body = ReadPayload<DownloadedLevelPageRequest>(request);
     return DownloadLibraryService.GetPage(body?.Cursor, body?.Direction, body?.Limit ?? 0);
   }
 
-  private static object DownloadedSummary(IpcRequest request)
+  private static object UpdateCheck(IpcCommand request)
   {
-    return DownloadLibraryService.GetSummary();
-  }
-
-  private static object UpdateCheck(IpcRequest request)
-  {
-    LevelUpdateRequest body = ReadParams<LevelUpdateRequest>(request);
+    LevelUpdateRequest body = ReadPayload<LevelUpdateRequest>(request);
     return LevelJobService.StartUpdateCheck(body?.Id);
   }
 
-  private static object UpdateStart(IpcRequest request)
+  private static object UpdateStart(IpcCommand request)
   {
-    LevelUpdateRequest body = ReadParams<LevelUpdateRequest>(request);
+    LevelUpdateRequest body = ReadPayload<LevelUpdateRequest>(request);
     return LevelJobService.StartUpdate(body?.Id);
   }
 
-  private static object UpdateCheckAllStart(IpcRequest request) => LevelUpdateCheckBatchService.Start();
+  private static object UpdateCheckAllStart(IpcCommand request) => LevelUpdateCheckBatchService.Start();
 
-  private static object UpdateCheckAllStatus(IpcRequest request) => LevelUpdateCheckBatchService.GetStatus();
+  private static object UpdateCheckAllCancel(IpcCommand request) => LevelUpdateCheckBatchService.Cancel();
 
-  private static object UpdateCheckAllCancel(IpcRequest request) => LevelUpdateCheckBatchService.Cancel();
+  private static object UpdateAllStart(IpcCommand request) => LevelUpdateCheckBatchService.StartUpdateAll();
 
-  private static object UpdateAllStart(IpcRequest request) => LevelUpdateCheckBatchService.StartUpdateAll();
+  private static object UpdateAllCancel(IpcCommand request) => LevelUpdateCheckBatchService.Cancel();
 
-  private static object UpdateAllStatus(IpcRequest request) => LevelUpdateCheckBatchService.GetStatus();
-
-  private static object UpdateAllCancel(IpcRequest request) => LevelUpdateCheckBatchService.Cancel();
-
-  private static object Cancel(IpcRequest request)
+  private static object Cancel(IpcCommand request)
   {
-    JobStatusRequest body = ReadParams<JobStatusRequest>(request);
+    JobStatusRequest body = ReadPayload<JobStatusRequest>(request);
     bool cancelled = LevelJobService.Cancel(body?.JobId);
 
     return new JobCancelResponse
@@ -212,9 +287,9 @@ public static class IpcRegistration
     };
   }
 
-  private static object Select(IpcRequest request)
+  private static object Select(IpcCommand request)
   {
-    SelectLevelRequest body = ReadParams<SelectLevelRequest>(request);
+    SelectLevelRequest body = ReadPayload<SelectLevelRequest>(request);
     bool opened = LevelJobService.SelectLevel(body?.JobId, body?.LevelPath);
 
     return new SelectLevelResponse
@@ -226,59 +301,57 @@ public static class IpcRegistration
     };
   }
 
-  private static object StorageGet(IpcRequest request)
+  private static object StorageFolderPickStart(IpcCommand request)
   {
-    return DownloadStorageMigrationService.GetStatus();
-  }
-
-  private static object StorageFolderPickStart(IpcRequest request)
-  {
-    FolderPickerStartRequest body = ReadParams<FolderPickerStartRequest>(request);
+    FolderPickerStartRequest body = ReadPayload<FolderPickerStartRequest>(request);
     return DownloadFolderPickerCoordinator.Start(body?.AllowExisting == true);
   }
 
-  private static object StorageFolderPickStatus(IpcRequest request)
+  private static object StorageMigrationStart(IpcCommand request)
   {
-    FolderPickerStatusRequest body = ReadParams<FolderPickerStatusRequest>(request);
-    return DownloadFolderPickerCoordinator.GetStatus(body?.OperationId);
-  }
-
-  private static object StorageMigrationStart(IpcRequest request)
-  {
-    StorageMigrationStartRequest body = ReadParams<StorageMigrationStartRequest>(request);
+    StorageMigrationStartRequest body = ReadPayload<StorageMigrationStartRequest>(request);
+    if (body?.UseDefault != true)
+    {
+      lock (PublisherGate)
+      {
+        if (body == null || string.IsNullOrEmpty(body.SelectionToken) || !SelectionOwners.TryGetValue(body.SelectionToken, out string peerId) || peerId != request.PeerId)
+        { request.Reject("selection_token_invalid", "Choose a download folder again to continue."); return null; }
+      }
+    }
     return DownloadStorageMigrationService.Start(body?.SelectionToken, body?.UseDefault == true);
   }
 
-  private static object StorageMigrationStatus(IpcRequest request)
-  {
-    return DownloadStorageMigrationService.GetStatus();
-  }
-
-  private static object StorageMigrationRetry(IpcRequest request)
+  private static object StorageMigrationRetry(IpcCommand request)
   {
     return DownloadStorageMigrationService.Retry();
   }
 
-  private static object StorageChangeStart(IpcRequest request)
+  private static object StorageChangeStart(IpcCommand request)
   {
-    StorageMigrationStartRequest body = ReadParams<StorageMigrationStartRequest>(request);
+    StorageMigrationStartRequest body = ReadPayload<StorageMigrationStartRequest>(request);
+    if (body?.UseDefault != true)
+    {
+      lock (PublisherGate)
+      {
+        if (body == null || string.IsNullOrEmpty(body.SelectionToken) || !SelectionOwners.TryGetValue(body.SelectionToken, out string peerId) || peerId != request.PeerId)
+        { request.Reject("selection_token_invalid", "Choose a download folder again to continue."); return null; }
+      }
+    }
     return DownloadStorageMigrationService.StartChange(body?.SelectionToken, body?.UseDefault == true);
   }
 
-  private static object StorageChangeStatus(IpcRequest request) => DownloadStorageMigrationService.GetStatus();
+  private static object StorageChangeRetry(IpcCommand request) => DownloadStorageMigrationService.Retry();
 
-  private static object StorageChangeRetry(IpcRequest request) => DownloadStorageMigrationService.Retry();
+  private static object StorageChangeCancel(IpcCommand request) => DownloadStorageMigrationService.CancelChange();
 
-  private static object StorageChangeCancel(IpcRequest request) => DownloadStorageMigrationService.CancelChange();
-
-  private static T ReadParams<T>(IpcRequest request) where T : class
+  private static T ReadPayload<T>(IpcCommand request) where T : class
   {
-    if (request?.Params == null || request.Params.Type == JTokenType.Null)
+    if (request?.Payload == null || request.Payload.Type == JTokenType.Null)
     {
       return null;
     }
 
-    return request.Params.ToObject<T>();
+    return request.Payload.ToObject<T>();
   }
 
 }

@@ -842,6 +842,7 @@ public static class DownloadLibraryService
 
   private static void SaveSummaryLocked()
   {
+    TUFHelperLite.Domain.Ports.ActivityChanges.Notify(TUFHelperLite.Domain.Ports.ActivityTopic.Library);
     if (string.IsNullOrWhiteSpace(_summaryPath) || _summary == null) return;
     try { WriteAtomic(_summaryPath, _summary); }
     catch (Exception exception) { Main.Instance?.Warning("Failed to save download library summary: " + exception.Message); }

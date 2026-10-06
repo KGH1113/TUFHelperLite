@@ -475,6 +475,7 @@ public static class LevelJobService
       foreach (string jobId in expiredJobIds)
       {
         Jobs.Remove(jobId);
+        TUFHelperLite.Domain.Ports.ActivityChanges.Notify(TUFHelperLite.Domain.Ports.ActivityTopic.Jobs);
         DismissedModalJobIds.Remove(jobId);
       }
     }

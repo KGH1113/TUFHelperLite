@@ -19,7 +19,7 @@ internal static class Program
 {
   private const string LegacyFixtureSha256 =
     "ffbb08d28d5189528f4d64906d90e22e9f22eb23a433409e158f983c6b31cc55";
-  private const string CurrentVersion = "0.1.9";
+  private const string CurrentVersion = "0.2.0";
   private static readonly List<string> Failures = new();
 
   private static int Main()
@@ -71,12 +71,12 @@ internal static class Program
     string stateRoot = Path.Combine(modRoot, "DependencyBootstrap");
     Directory.CreateDirectory(stateRoot);
     File.WriteAllText(Path.Combine(stateRoot, "state.json"),
-      "{\"SchemaVersion\":1,\"Current\":\"0.4.0\",\"Previous\":null,\"Trial\":null}");
+      "{\"SchemaVersion\":1,\"Current\":\"1.0.0\",\"Previous\":null,\"Trial\":null}");
 
     True("missing dependency bootstrap candidate repaired",
       DependencyEntryPoint.RepairMissingCandidate(modRoot, controls));
     True("dependency bootstrap candidate restored",
-      File.Exists(Path.Combine(stateRoot, "versions", "0.4.0", "AdofaiIpc.Bootstrap.dll")));
+      File.Exists(Path.Combine(stateRoot, "versions", "1.0.0", "AdofaiIpc.Bootstrap.dll")));
   }
 
   private static void VerifyLegacyBinary(string root, string package)
@@ -147,11 +147,11 @@ internal static class Program
 
   private static void VerifyReleaseSelection()
   {
-    string json = ReleaseJson("0.1.10", 1234, false);
+    string json = ReleaseJson("0.2.1", 1234, false);
     UpdateManager.UpdateReleaseSelection selection = UpdateManager.SelectRelease(json, CurrentVersion);
-    Equal("stable release selected", "0.1.10", selection?.Version);
-    True("equal release skipped", UpdateManager.SelectRelease(json, "0.1.10") == null);
-    True("prerelease skipped", UpdateManager.SelectRelease(ReleaseJson("0.1.10", 1234, true), CurrentVersion) == null);
+    Equal("stable release selected", "0.2.1", selection?.Version);
+    True("equal release skipped", UpdateManager.SelectRelease(json, "0.2.1") == null);
+    True("prerelease skipped", UpdateManager.SelectRelease(ReleaseJson("0.2.1", 1234, true), CurrentVersion) == null);
   }
 
   private static void VerifyVersionContract()
@@ -342,7 +342,7 @@ internal static class Program
     AddFile(archive, "TUFHelperLite/Assets/AdofaiIpc/AdofaiIpc.Migration.dll",
       Required("ADOFAIIPC_MIGRATION_DLL"));
     const string bootstrapManifest =
-      "{\"MinimumAdofaiIpcVersion\":\"0.4.0\"," +
+      "{\"MinimumAdofaiIpcVersion\":\"1.0.0\"," +
       "\"AssemblyName\":\"Assets/AdofaiIpc/TUFHelperLite.Launcher.dll\"," +
       "\"EntryMethod\":\"TUFHelperLite.Launcher.EntryPoint.Load\"}";
     AddText(archive, "TUFHelperLite/Assets/AdofaiIpc/AdofaiIpcBootstrap.json", bootstrapManifest);

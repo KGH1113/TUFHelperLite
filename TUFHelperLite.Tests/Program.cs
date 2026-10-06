@@ -54,6 +54,7 @@ internal static class Program
         CreateLevel(root, "", "chart.adofai")));
       RunDiskSpacePolicyTests();
       RunCancellationTests();
+      RunActivityChangeTests();
       RunDownloadStorageMigrationTests();
       RunDownloadLibraryTests();
       RunLevelUpdateTests();
@@ -83,6 +84,25 @@ internal static class Program
     Directory.CreateDirectory(Path.GetDirectoryName(path)!);
     File.WriteAllText(path, "{}");
     return Path.GetFullPath(path);
+  }
+
+  private static void RunActivityChangeTests()
+  {
+    var changes = new TUFHelperLite.Domain.Ports.ActivityChangeBuffer();
+    TUFHelperLite.Domain.Ports.ActivityChanges.Sink = changes;
+    try
+    {
+      var job = new DownloadJob("level.download", "1", "https://example.invalid/level", "tuf-1", false);
+      job.BeginRunning();
+      for (int index = 0; index < 1000; index++) job.Report("downloading", "Downloading", index, 1000);
+      job.TryCancel();
+      CheckTrue("terminal job retains dirty state after progress coalescing", (changes.Drain() & TUFHelperLite.Domain.Ports.ActivityTopic.Jobs) != 0);
+      CheckTrue("coalesced cancellation snapshot is terminal", job.Snapshot().Done);
+      CheckTrue("drain consumes dirty topics", changes.Drain() == TUFHelperLite.Domain.Ports.ActivityTopic.None);
+      System.Threading.Tasks.Parallel.For(0, 1000, index => changes.Changed(index % 2 == 0 ? TUFHelperLite.Domain.Ports.ActivityTopic.Library : TUFHelperLite.Domain.Ports.ActivityTopic.Storage));
+      CheckTrue("concurrent topics are retained", changes.Drain() == (TUFHelperLite.Domain.Ports.ActivityTopic.Library | TUFHelperLite.Domain.Ports.ActivityTopic.Storage));
+    }
+    finally { TUFHelperLite.Domain.Ports.ActivityChanges.Sink = null; }
   }
 
   private static void RunDiskSpacePolicyTests()

@@ -419,6 +419,7 @@ public sealed class DownloadJob
 
   private void Touch()
   {
+    TUFHelperLite.Domain.Ports.ActivityChanges.Notify(TUFHelperLite.Domain.Ports.ActivityTopic.Jobs);
     _updatedAtUnixMs = Now();
   }
 

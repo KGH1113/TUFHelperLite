@@ -54,6 +54,7 @@ public static class LevelUpdateCheckBatchService
         if (operationKind == "update") RunUpdates(_snapshot.OperationId, _cancellation.Token);
         else RunChecks(_snapshot.OperationId, _cancellation.Token);
       });
+      TUFHelperLite.Domain.Ports.ActivityChanges.Notify(TUFHelperLite.Domain.Ports.ActivityTopic.Batch);
       return Clone(_snapshot);
     }
   }
@@ -72,6 +73,7 @@ public static class LevelUpdateCheckBatchService
       _snapshot.Message = _snapshot.OperationKind == "update" ? "Cancelling updates." : "Cancelling update check.";
       _cancellation?.Cancel();
       if (!string.IsNullOrWhiteSpace(_ownedJobId)) LevelJobService.Cancel(_ownedJobId);
+      TUFHelperLite.Domain.Ports.ActivityChanges.Notify(TUFHelperLite.Domain.Ports.ActivityTopic.Batch);
       return Clone(_snapshot);
     }
   }
@@ -290,6 +292,7 @@ public static class LevelUpdateCheckBatchService
   private static void Update(Action<LevelUpdateCheckBatchSnapshot> action)
   {
     lock (Gate) action(_snapshot);
+    TUFHelperLite.Domain.Ports.ActivityChanges.Notify(TUFHelperLite.Domain.Ports.ActivityTopic.Batch);
   }
 
   private static void FinishOperation()

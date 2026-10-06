@@ -712,6 +712,7 @@ public static class DownloadStorageMigrationService
 
   private static void SaveJournalLocked()
   {
+    TUFHelperLite.Domain.Ports.ActivityChanges.Notify(TUFHelperLite.Domain.Ports.ActivityTopic.Storage);
     if (string.IsNullOrWhiteSpace(_journalPath)) return;
     string temporary = _journalPath + ".tmp";
     File.WriteAllText(temporary, JsonConvert.SerializeObject(_snapshot, Formatting.Indented));

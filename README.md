@@ -49,15 +49,16 @@ https://tuforums.com/levels/:id
 When clicked, the browser helper should download or resolve the level package
 and ask the local mod to open it through AdofaiIpc.
 
-## Planned Flow
+## Browser connection
 
-```text
-tuforums.com level page
--> browser userscript or extension injects a button
--> button calls local AdofaiIpc
--> TUFHelperLite downloads or receives the level payload
--> TUFHelperLite opens the level in ADOFAI
-```
+The TUF website connects directly to the local AdofaiIpc WebSocket session.
+The browser sends named commands; the mod publishes job, library, storage and
+batch changes as they happen. No HTTP RPC endpoint or status polling is used.
+After reconnecting, the mod sends a fresh snapshot. Starting or cancelling a
+job is never replayed automatically after a lost connection.
+
+The browser SDK is consumed from a canonical source snapshot checked into the
+frontend repository; this transition does not publish an npm package.
 
 ## Runtime
 
@@ -65,7 +66,7 @@ Required at runtime:
 
 - A Dance of Fire and Ice
 - UnityModManager
-- AdofaiIpc 0.4.0 or newer. A missing dependency is installed automatically. Disabled,
+- AdofaiIpc 1.0.0 or newer. A missing dependency is installed automatically. Disabled,
   outdated, installation-failure, and load-failure states are shown by the shared AdofaiIpc dialog.
 - TUFHelperLite installed under the ADOFAI `Mods/TUFHelperLite` directory
 
@@ -93,7 +94,7 @@ The package command creates both `build/TUFHelperLite.zip` and
 `build/TUFHelperLite.zip.sha256`. Upload both files, without renaming them, to a
 stable GitHub release tagged `vX.Y.Z`; `X.Y.Z` must match `Info.json`.
 
-TUFHelperLite 0.1.9 uses a fixed launcher and versioned runtimes. The launcher
+TUFHelperLite 0.2.0 uses a fixed launcher and versioned runtimes. The launcher
 checks the latest stable GitHub release before loading the core, verifies the
 ZIP and checksum, and can activate a newer runtime in the same game launch.
 Network or verification failures leave the current runtime untouched.
@@ -110,6 +111,13 @@ The published 0.1.3 updater cannot complete this transition. Users who manually
 installed 0.1.3 must manually reinstall TUFHelperLite 0.1.4 once. Releases after
 0.1.4 are handled by the fixed launcher without another manual reinstall. The
 core does not own a separate IPC compatibility modal or placeholder namespace.
+
+### 0.2.0 highlights
+
+- Require AdofaiIpc 1.0.0 and use bidirectional WebSocket commands and events.
+- Push job, storage, folder picker, library and batch changes to subscribed browsers.
+- Observe only visible downloaded level IDs, keeping large libraries paginated.
+- Separate application change/native picker ports from IPC and Unity adapters.
 
 ### 0.1.9 highlights
 
@@ -163,14 +171,11 @@ source remains active during copy and verification. After a verified cutover,
 cleanup failures leave the new directory active and are retried on the next
 launch.
 
-The additive IPC methods are:
-
-- `storage.get`
-- `storage.folder-pick.start`
-- `storage.folder-pick.status`
-- `storage.migration.start`
-- `storage.migration.status`
-- `storage.migration.retry`
+Storage commands are `storage.folder-pick.start`, `storage.change.start`,
+`storage.change.retry`, and `storage.change.cancel`. The mod sends
+`storage.changed` as the operation advances. Folder picker completion is sent
+as `folder.selection` only to the peer that opened it; selection tokens are
+never included in broadcasts or reconnect snapshots.
 
 ## Download Library
 
@@ -181,14 +186,19 @@ page size is 20. Existing downloads are enriched lazily and store a small
 and payload size are kept separately in `DownloadLibrarySummary.json`, so no
 full level catalog needs to be loaded into memory.
 
-The additive IPC methods are:
+The browser sends `library.page` with a cursor, direction and page limit, and
+receives the correlated `library.page` event. `library.changed` carries the
+updated summary and revision. `library.watch` accepts up to 500 currently
+visible level IDs and sends `library.membership` to that browser only. Neither
+initial snapshots nor progress events load and broadcast the complete library.
+Opaque cursors belong to a library revision and are discarded when the server
+reports `download_library_cursor_stale`.
 
-- `level.downloaded-page`
-- `level.downloaded-summary`
-
-Clients should check for the `downloaded-level-library-v1` health capability.
-Opaque cursors are tied to the current library revision and must be discarded
-when the server reports `download_library_cursor_stale`.
+The initial `snapshot` contains health, jobs, storage, batch and summary. Jobs
+are updated by `jobs.changed`, batches by `batch.changed`, and commands such as
+opening a level receive named `job.started` events. A non-blocking application
+change port coalesces progress mutations; the IPC adapter drains only dirty
+topics outside application locks and preserves the latest terminal state.
 
 ## Tech Stack
 

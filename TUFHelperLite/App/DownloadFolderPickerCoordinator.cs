@@ -1,9 +1,5 @@
 using System;
-using System.Diagnostics;
-using System.Threading;
 using TUFHelperLite.Infrastructure.Downloads;
-using UnityEngine;
-using UnityFileDialog;
 
 namespace TUFHelperLite.App;
 
@@ -28,6 +24,9 @@ public static class DownloadFolderPickerCoordinator
     public DownloadFolderPickerSnapshot Result;
   }
 
+  public static TUFHelperLite.App.Ports.IMainThreadDispatcher MainThread { private get; set; }
+  public static TUFHelperLite.App.Ports.IFolderPicker FolderPicker { private get; set; }
+
   private static readonly object Gate = new();
   private static PickOperation _active;
   private static string _selectedToken;
@@ -49,7 +48,7 @@ public static class DownloadFolderPickerCoordinator
       _selectedKind = null;
     }
 
-    global::AdofaiIpc.AdofaiIpc.RunOnMainThread(() => BeginPick(operation));
+    (MainThread ?? throw new InvalidOperationException("The folder picker dispatcher is not configured.")).Dispatch(() => BeginPick(operation));
     return Pending(operation.Id);
   }
 
@@ -99,60 +98,14 @@ public static class DownloadFolderPickerCoordinator
   private static void BeginPick(PickOperation operation)
   {
     if (!IsCurrent(operation)) return;
-    if (Application.platform == RuntimePlatform.OSXPlayer)
-    {
-      ThreadPool.QueueUserWorkItem(_ => PickOnMac(operation));
-      return;
-    }
-
     try
     {
-      CompleteSelection(operation, FileBrowser.PickFolder(
-        DownloadCachePaths.GetDownloadRoot(),
-        title: operation.AllowExisting
-          ? "Choose a TUFHelperLite download folder"
-          : "Choose an empty TUFHelperLite download folder"));
+      (FolderPicker ?? throw new InvalidOperationException("The native folder picker is not configured.")).Pick(
+        DownloadCachePaths.GetDownloadRoot(), operation.AllowExisting,
+        directory => CompleteSelection(operation, directory),
+        exception => Complete(operation, Error(operation.Id, "folder_picker_failed", PickerFailure(exception))));
     }
-    catch (Exception exception)
-    {
-      Complete(operation, Error(operation.Id, "folder_picker_failed", PickerFailure(exception)));
-    }
-  }
-
-  private static void PickOnMac(PickOperation operation)
-  {
-    try
-    {
-      using Process process = new()
-      {
-        StartInfo = new ProcessStartInfo
-        {
-          FileName = "/usr/bin/osascript",
-          Arguments = operation.AllowExisting
-            ? "-e \"POSIX path of (choose folder with prompt \\\"Choose a TUFHelperLite download folder\\\")\""
-            : "-e \"POSIX path of (choose folder with prompt \\\"Choose an empty TUFHelperLite download folder\\\")\"",
-          UseShellExecute = false,
-          RedirectStandardOutput = true,
-          RedirectStandardError = true,
-          CreateNoWindow = true,
-        }
-      };
-      process.Start();
-      string output = process.StandardOutput.ReadToEnd();
-      string error = process.StandardError.ReadToEnd();
-      process.WaitForExit();
-      if (process.ExitCode == 0)
-        CompleteSelection(operation, output.Trim());
-      else if (error.Contains("(-128)"))
-        Complete(operation, Cancelled(operation.Id));
-      else
-        Complete(operation, Error(operation.Id, "folder_picker_failed",
-          string.IsNullOrWhiteSpace(error) ? "The macOS folder picker failed." : error.Trim()));
-    }
-    catch (Exception exception)
-    {
-      Complete(operation, Error(operation.Id, "folder_picker_failed", PickerFailure(exception)));
-    }
+    catch (Exception exception) { Complete(operation, Error(operation.Id, "folder_picker_failed", PickerFailure(exception))); }
   }
 
   private static void CompleteSelection(PickOperation operation, string directory)
@@ -176,6 +129,7 @@ public static class DownloadFolderPickerCoordinator
         _selectedToken = token;
         _selectedDirectory = canonical;
         _selectedKind = kind ?? "migration";
+        TUFHelperLite.Domain.Ports.ActivityChanges.Notify(TUFHelperLite.Domain.Ports.ActivityTopic.Folder);
         operation.Result = new DownloadFolderPickerSnapshot
         {
           OperationId = operation.Id,
@@ -202,7 +156,11 @@ public static class DownloadFolderPickerCoordinator
   {
     lock (Gate)
     {
-      if (ReferenceEquals(_active, operation)) operation.Result = result;
+      if (ReferenceEquals(_active, operation))
+      {
+        operation.Result = result;
+        TUFHelperLite.Domain.Ports.ActivityChanges.Notify(TUFHelperLite.Domain.Ports.ActivityTopic.Folder);
+      }
     }
   }
 
