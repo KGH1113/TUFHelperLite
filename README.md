@@ -90,6 +90,13 @@ Validate the shell workflow:
 ./scripts/run.sh check
 ```
 
+Local builds verify the pinned IPC bootstrap artifacts and activate that candidate in
+`DependencyBootstrap/state.json`; copying a new DLL into Assets alone does not change the
+shim's selected version. The installer preserves earlier candidate directories and saves
+replaced state/candidate files under `DependencyBootstrap/install-history`. Reinstalling
+also clears the generated Helper Runtime so it is seeded from the current build. The
+bootstrap activation regressions run in both build and package workflows.
+
 The package command creates both `build/TUFHelperLite.zip` and
 `build/TUFHelperLite.zip.sha256`. Upload both files, without renaming them, to a
 stable GitHub release tagged `vX.Y.Z`; `X.Y.Z` must match `Info.json`.

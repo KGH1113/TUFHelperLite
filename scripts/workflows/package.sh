@@ -19,6 +19,7 @@ run_task "Validate Unity/Mono compatibility" \
   "$TUFHELPER_LITE_LAUNCHER_BUILD_OUTPUT/TUFHelperLite.Launcher.dll" \
   "$TUFHELPER_LITE_UPDATE_ENGINE_BUILD_OUTPUT/TUFHelperLite.UpdateEngine.dll"
 run_task "Run C# tests" "$TASKS_DIR/test/csharp.sh"
+run_task "Verify local bootstrap activation" python3 "$TASKS_DIR/test/bootstrap-install.py"
 run_task "Stage mod package" "$TASKS_DIR/package/stage.sh"
 run_task "Validate staged Unity/Mono compatibility" \
   "$TASKS_DIR/validate/unity-mono-compatibility.sh" \
