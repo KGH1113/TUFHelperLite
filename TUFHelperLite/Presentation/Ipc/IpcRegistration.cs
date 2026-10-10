@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using TUFHelperLite.Domain.Ports;
-using AdofaiIpc;
 using System.IO;
 using System.Linq;
 using Newtonsoft.Json.Linq;
@@ -14,7 +13,7 @@ namespace TUFHelperLite.Presentation.Ipc;
 
 public static class IpcRegistration
 {
-  private static global::AdofaiIpc.AdofaiIpcNamespace _namespace;
+  private static JsonFeature _namespace;
   private static readonly ActivityChangeBuffer Changes = new();
   private static readonly object PublisherGate = new();
   private static readonly Dictionary<string, string> FolderOwners = new();
@@ -27,13 +26,12 @@ public static class IpcRegistration
 
   private sealed class MainThreadDispatcher : TUFHelperLite.App.Ports.IMainThreadDispatcher
   {
-    public void Dispatch(Action action) => global::AdofaiIpc.AdofaiIpc.RunOnMainThread(action);
+    public void Dispatch(Action action) => IpcRuntime.Current.RunOnGameThread(action);
   }
 
   public static void Register()
   {
     _namespace = RegisterNamespace();
-    RegisterHandlers(_namespace);
     ActivityChanges.Sink = Changes;
     DownloadFolderPickerCoordinator.MainThread = new MainThreadDispatcher();
     DownloadFolderPickerCoordinator.FolderPicker = new TUFHelperLite.Presentation.Unity.NativeFolderPicker();
@@ -66,7 +64,7 @@ public static class IpcRegistration
       _publisher?.Dispose();
       _publisher = null;
       lock (PublisherGate) { FolderOwners.Clear(); SelectionOwners.Clear(); LibraryInterests.Clear(); Subscribers.Clear(); }
-      global::AdofaiIpc.AdofaiIpc.UnregisterNamespace("tufhelperlite");
+      _namespace?.Dispose();
       _namespace = null;
     }
     catch (Exception e)
@@ -75,7 +73,7 @@ public static class IpcRegistration
     }
   }
 
-  private static void RegisterHandlers(global::AdofaiIpc.AdofaiIpcNamespace ipc)
+  private static void RegisterHandlers(JsonFeature ipc)
   {
     ipc.RegisterCommand("snapshot.refresh", command => command.Reply("snapshot", Snapshot()));
     ipc.RegisterCommand("level.open-from-id", command => command.Reply("job.started", OpenFromId(command)));
@@ -159,7 +157,7 @@ public static class IpcRegistration
     try
     {
       dirty = Changes.Drain();
-      global::AdofaiIpc.AdofaiIpcNamespace ipc = _namespace;
+      JsonFeature ipc = _namespace;
       if (ipc == null) return;
       if ((dirty & ActivityTopic.Jobs) != 0) ipc.Publish("jobs.changed", new { Jobs = LevelJobService.List() });
       if ((dirty & ActivityTopic.Library) != 0)
@@ -189,25 +187,18 @@ public static class IpcRegistration
     finally { Volatile.Write(ref _publishing, 0); }
   }
 
-  private static global::AdofaiIpc.AdofaiIpcNamespace RegisterNamespace()
+  private static JsonFeature RegisterNamespace()
   {
-    return global::AdofaiIpc.AdofaiIpc.RegisterNamespace(
-      "tufhelperlite",
-      new global::AdofaiIpc.IpcNamespaceInfo
-      {
-        DisplayName = ModStatus.DisplayName,
-        Version = ModStatus.Version,
-        AllowedOrigins = new[]
+    return JsonFeature.Register(
+      new AdofaiIpc.Contracts.FeatureDescription("tufhelperlite", ModStatus.Version,
+        protocolMajor: 1, displayName: ModStatus.DisplayName, allowedOrigins: new[]
         {
-          "https://tuforums.com",
-          "http://localhost",
-          "http://127.0.0.1",
+          "https://tuforums.com", "http://localhost", "http://127.0.0.1",
           "https://guhyeons-macbook-pro.tail234c02.ts.net"
-        }
-      });
+        }), RegisterHandlers);
   }
 
-  private static object Health(IpcCommand request)
+  private static object Health(JsonCommand request)
   {
     return new HealthResponse
     {
@@ -227,54 +218,54 @@ public static class IpcRegistration
     };
   }
 
-  private static object OpenFromId(IpcCommand request)
+  private static object OpenFromId(JsonCommand request)
   {
     OpenLevelByIdRequest body = ReadPayload<OpenLevelByIdRequest>(request);
 
     return LevelJobService.StartOpenFromId(body?.Id, body == null || body.OpenAfterDownload);
   }
 
-  private static object OpenFromUrl(IpcCommand request)
+  private static object OpenFromUrl(JsonCommand request)
   {
     OpenLevelByUrlRequest body = ReadPayload<OpenLevelByUrlRequest>(request);
 
     return LevelJobService.StartOpenFromUrl(body?.Url, body == null || body.OpenAfterDownload);
   }
 
-  private static object Download(IpcCommand request)
+  private static object Download(JsonCommand request)
   {
     DownloadLevelRequest body = ReadPayload<DownloadLevelRequest>(request);
 
     return LevelJobService.StartDownload(body?.Url, body?.LevelId);
   }
 
-  private static object DownloadedPage(IpcCommand request)
+  private static object DownloadedPage(JsonCommand request)
   {
     DownloadedLevelPageRequest body = ReadPayload<DownloadedLevelPageRequest>(request);
     return DownloadLibraryService.GetPage(body?.Cursor, body?.Direction, body?.Limit ?? 0);
   }
 
-  private static object UpdateCheck(IpcCommand request)
+  private static object UpdateCheck(JsonCommand request)
   {
     LevelUpdateRequest body = ReadPayload<LevelUpdateRequest>(request);
     return LevelJobService.StartUpdateCheck(body?.Id);
   }
 
-  private static object UpdateStart(IpcCommand request)
+  private static object UpdateStart(JsonCommand request)
   {
     LevelUpdateRequest body = ReadPayload<LevelUpdateRequest>(request);
     return LevelJobService.StartUpdate(body?.Id);
   }
 
-  private static object UpdateCheckAllStart(IpcCommand request) => LevelUpdateCheckBatchService.Start();
+  private static object UpdateCheckAllStart(JsonCommand request) => LevelUpdateCheckBatchService.Start();
 
-  private static object UpdateCheckAllCancel(IpcCommand request) => LevelUpdateCheckBatchService.Cancel();
+  private static object UpdateCheckAllCancel(JsonCommand request) => LevelUpdateCheckBatchService.Cancel();
 
-  private static object UpdateAllStart(IpcCommand request) => LevelUpdateCheckBatchService.StartUpdateAll();
+  private static object UpdateAllStart(JsonCommand request) => LevelUpdateCheckBatchService.StartUpdateAll();
 
-  private static object UpdateAllCancel(IpcCommand request) => LevelUpdateCheckBatchService.Cancel();
+  private static object UpdateAllCancel(JsonCommand request) => LevelUpdateCheckBatchService.Cancel();
 
-  private static object Cancel(IpcCommand request)
+  private static object Cancel(JsonCommand request)
   {
     JobStatusRequest body = ReadPayload<JobStatusRequest>(request);
     bool cancelled = LevelJobService.Cancel(body?.JobId);
@@ -287,7 +278,7 @@ public static class IpcRegistration
     };
   }
 
-  private static object Select(IpcCommand request)
+  private static object Select(JsonCommand request)
   {
     SelectLevelRequest body = ReadPayload<SelectLevelRequest>(request);
     bool opened = LevelJobService.SelectLevel(body?.JobId, body?.LevelPath);
@@ -301,13 +292,13 @@ public static class IpcRegistration
     };
   }
 
-  private static object StorageFolderPickStart(IpcCommand request)
+  private static object StorageFolderPickStart(JsonCommand request)
   {
     FolderPickerStartRequest body = ReadPayload<FolderPickerStartRequest>(request);
     return DownloadFolderPickerCoordinator.Start(body?.AllowExisting == true);
   }
 
-  private static object StorageMigrationStart(IpcCommand request)
+  private static object StorageMigrationStart(JsonCommand request)
   {
     StorageMigrationStartRequest body = ReadPayload<StorageMigrationStartRequest>(request);
     if (body?.UseDefault != true)
@@ -321,12 +312,12 @@ public static class IpcRegistration
     return DownloadStorageMigrationService.Start(body?.SelectionToken, body?.UseDefault == true);
   }
 
-  private static object StorageMigrationRetry(IpcCommand request)
+  private static object StorageMigrationRetry(JsonCommand request)
   {
     return DownloadStorageMigrationService.Retry();
   }
 
-  private static object StorageChangeStart(IpcCommand request)
+  private static object StorageChangeStart(JsonCommand request)
   {
     StorageMigrationStartRequest body = ReadPayload<StorageMigrationStartRequest>(request);
     if (body?.UseDefault != true)
@@ -340,11 +331,11 @@ public static class IpcRegistration
     return DownloadStorageMigrationService.StartChange(body?.SelectionToken, body?.UseDefault == true);
   }
 
-  private static object StorageChangeRetry(IpcCommand request) => DownloadStorageMigrationService.Retry();
+  private static object StorageChangeRetry(JsonCommand request) => DownloadStorageMigrationService.Retry();
 
-  private static object StorageChangeCancel(IpcCommand request) => DownloadStorageMigrationService.CancelChange();
+  private static object StorageChangeCancel(JsonCommand request) => DownloadStorageMigrationService.CancelChange();
 
-  private static T ReadPayload<T>(IpcCommand request) where T : class
+  private static T ReadPayload<T>(JsonCommand request) where T : class
   {
     if (request?.Payload == null || request.Payload.Type == JTokenType.Null)
     {

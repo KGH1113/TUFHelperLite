@@ -47,7 +47,6 @@ internal sealed class UpdateResolution
   public bool HasCandidate { get; private set; }
   public string Version { get; private set; }
   public string RuntimePath { get; private set; }
-  public string DependencyBootstrapPath { get; private set; }
 
   public static UpdateResolution None() => new();
 
@@ -64,8 +63,6 @@ internal sealed class UpdateResolution
       HasCandidate = true,
       Version = root.Value<string>("Version") ?? root.Value<string>("version"),
       RuntimePath = root.Value<string>("RuntimePath") ?? root.Value<string>("runtimePath"),
-      DependencyBootstrapPath = root.Value<string>("DependencyBootstrapPath") ??
-        root.Value<string>("dependencyBootstrapPath"),
     };
   }
 }

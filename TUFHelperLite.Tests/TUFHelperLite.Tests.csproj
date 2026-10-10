@@ -2,6 +2,7 @@
   <Import Project="../TUFHelperLite/Directory.Build.props" />
 
   <PropertyGroup>
+    <AdofaiIpcBundle Condition="'$(AdofaiIpcBundle)' == ''">$(MSBuildThisFileDirectory)../vendor/adofai-ipc-runtime</AdofaiIpcBundle>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <LangVersion>latest</LangVersion>

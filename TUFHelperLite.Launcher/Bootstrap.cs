@@ -34,26 +34,10 @@ public static class EntryPoint
       if (!resolution.HasCandidate)
         return TryLoadCurrent(modEntry, current);
 
-      string bootstrapTrial;
-      try
-      {
-        if (string.IsNullOrWhiteSpace(resolution.DependencyBootstrapPath))
-          throw new InvalidDataException("The update candidate has no dependency bootstrap.");
-        bootstrapTrial = DependencyBootstrapShim.Stage(modEntry.Path,
-          resolution.DependencyBootstrapPath);
-      }
-      catch (Exception exception)
-      {
-        Warn(modEntry, "The dependency bootstrap candidate could not be staged. Loading the current runtime.", exception);
-        modEntry.Info.DisplayName = displayName;
-        return TryLoadCurrent(modEntry, current);
-      }
-
       RuntimeCandidate trial;
       try { trial = store.ValidateCandidate(resolution.Version, resolution.RuntimePath); }
       catch (Exception exception)
       {
-        TryDiscardBootstrap(modEntry, bootstrapTrial);
         Warn(modEntry, "The runtime candidate failed validation. Loading the current runtime.", exception);
         return TryLoadCurrent(modEntry, current);
       }
@@ -65,7 +49,6 @@ public static class EntryPoint
       catch (Exception exception)
       {
         state.Trial = null;
-        TryDiscardBootstrap(modEntry, bootstrapTrial);
         Warn(modEntry, "The runtime trial marker could not be saved. Loading the current runtime.", exception);
         return TryLoadCurrent(modEntry, current);
       }
@@ -86,7 +69,6 @@ public static class EntryPoint
       state.Trial = null;
       store.Save(state);
       store.DeleteUnreferencedRuntime(trial.Version, state);
-      TryDiscardBootstrap(modEntry, bootstrapTrial);
       modEntry.Info.Version = current.Version;
       modEntry.Info.DisplayName = displayName + " <color=red>[Failed to update!]</color>";
       if (safeToFallback)
@@ -122,6 +104,7 @@ public static class EntryPoint
   {
     try
     {
+      TUFHelperLite.BundledIpc.BundledIpcFiles.Copy(candidate.RuntimePath, modEntry.Path);
       PayloadLoader.Load(candidate.AssemblyPath, PayloadEntryMethod, modEntry);
       exception = null;
       safeToFallback = false;
@@ -132,15 +115,6 @@ public static class EntryPoint
       exception = caught;
       safeToFallback = caught is PayloadLoadException loadFailure && !loadFailure.AssemblyLoaded;
       return false;
-    }
-  }
-
-  private static void TryDiscardBootstrap(UnityModManager.ModEntry modEntry, string version)
-  {
-    try { DependencyBootstrapShim.Discard(modEntry.Path, version); }
-    catch (Exception exception)
-    {
-      Warn(modEntry, "The dependency bootstrap trial could not be discarded.", exception);
     }
   }
 

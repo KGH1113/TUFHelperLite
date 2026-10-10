@@ -58,7 +58,6 @@ internal static class Program
       RunDownloadStorageMigrationTests();
       RunDownloadLibraryTests();
       RunLevelUpdateTests();
-      RunAdofaiIpcMigrationGuardTests();
     }
     finally
     {
@@ -897,18 +896,6 @@ internal static class Program
       DownloadLibraryService.Initialize(AppDomain.CurrentDomain.BaseDirectory);
       if (Directory.Exists(installRoot)) Directory.Delete(installRoot, true);
     }
-  }
-
-  private static void RunAdofaiIpcMigrationGuardTests()
-  {
-    CheckTrue("legacy direct entrypoint requires migration",
-      AdofaiIpcMigrationBridge.RequiresLegacyMigration("TUFHelperLite.Main.Load"));
-    CheckFalse("dependency entrypoint skips legacy migration",
-      AdofaiIpcMigrationBridge.RequiresLegacyMigration("TUFHelperLite.Launcher.DependencyEntryPoint.Load"));
-    CheckFalse("dependency shim entrypoint skips legacy migration",
-      AdofaiIpcMigrationBridge.RequiresLegacyMigration("AdofaiIpc.DependencyShim.DependencyShim.Load"));
-    CheckFalse("missing entrypoint skips legacy migration",
-      AdofaiIpcMigrationBridge.RequiresLegacyMigration(null));
   }
 
   private static void Check(string name, int? expected, int? actual)

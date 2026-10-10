@@ -26,3 +26,7 @@ TUFHelperLite.Unity/[Ll]ogs/
 TUFHelperLite.Unity/[Uu]ser[Ss]ettings/
 TUFHelperLite.Unity/MemoryCaptures/
 TUFHelperLite.Unity/Recordings/
+
+# Verified bundled IPC binaries are source dependencies.
+!vendor/adofai-ipc-runtime/*.dll
+!vendor/adofai-ipc-runtime/ipc/*.dll

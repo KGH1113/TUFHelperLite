@@ -19,13 +19,12 @@ run_task "Validate Unity/Mono compatibility" \
   "$TUFHELPER_LITE_LAUNCHER_BUILD_OUTPUT/TUFHelperLite.Launcher.dll" \
   "$TUFHELPER_LITE_UPDATE_ENGINE_BUILD_OUTPUT/TUFHelperLite.UpdateEngine.dll"
 run_task "Run C# tests" "$TASKS_DIR/test/csharp.sh"
-run_task "Verify local bootstrap activation" python3 "$TASKS_DIR/test/bootstrap-install.py"
 run_task "Stage mod package" "$TASKS_DIR/package/stage.sh"
 run_task "Validate staged Unity/Mono compatibility" \
   "$TASKS_DIR/validate/unity-mono-compatibility.sh" \
   "$TUFHELPER_LITE_PACKAGE_STAGE/TUFHelperLite.Core.dll" \
-  "$TUFHELPER_LITE_PACKAGE_STAGE/Assets/AdofaiIpc/TUFHelperLite.Launcher.dll" \
-  "$TUFHELPER_LITE_PACKAGE_STAGE/Assets/AdofaiIpc/TUFHelperLite.UpdateEngine.dll"
+  "$TUFHELPER_LITE_PACKAGE_STAGE/TUFHelperLite.Launcher.dll" \
+  "$TUFHELPER_LITE_PACKAGE_STAGE/TUFHelperLite.UpdateEngine.dll"
 run_task "Create mod archive" "$TASKS_DIR/package/archive.sh"
 run_task "Write checksum" "$TASKS_DIR/package/checksum.sh"
 run_task "Verify final package compatibility" env \

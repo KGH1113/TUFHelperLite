@@ -15,5 +15,5 @@ DOTNET_ROOT="$DOTNET_ROOT" DOTNET_ROOT_ARM64="$DOTNET_ROOT_ARM64" \
     -p:OutputPath="$TUFHELPER_LITE_BUILD_OUTPUT/" \
     -p:AdofaiManaged="$ADOFAI_MANAGED" \
     -p:AdofaiMods="$ADOFAI_MODS_DIR" \
-    -p:AdofaiIpcDll="$ADOFAIIPC_DLL" \
+    -p:AdofaiIpcBundle="$ADOFAI_IPC_BUNDLE" \
     -p:UnityModManagerDll="$UNITY_MOD_MANAGER_DLL"

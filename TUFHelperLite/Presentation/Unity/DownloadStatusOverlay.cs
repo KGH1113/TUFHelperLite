@@ -1,3 +1,4 @@
+using TUFHelperLite.Presentation.Ipc;
 using System;
 using TUFHelperLite.App;
 using TUFHelperLite.Domain.Jobs;
@@ -26,9 +27,9 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
 
   public static void EnsureInstalled()
   {
-    if (!global::AdofaiIpc.AdofaiIpc.IsMainThread)
+    if (!IpcRuntime.Current.IsGameThread)
     {
-      global::AdofaiIpc.AdofaiIpc.RunOnMainThread(EnsureInstalled);
+      IpcRuntime.Current.RunOnGameThread(EnsureInstalled);
       return;
     }
 
@@ -41,9 +42,9 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
 
   public static void Uninstall()
   {
-    if (!global::AdofaiIpc.AdofaiIpc.IsMainThread)
+    if (!IpcRuntime.Current.IsGameThread)
     {
-      global::AdofaiIpc.AdofaiIpc.RunOnMainThread(Uninstall);
+      IpcRuntime.Current.RunOnGameThread(Uninstall);
       return;
     }
 
@@ -224,12 +225,12 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
 
   private static void RunOnMainThread(Action action)
   {
-    if (global::AdofaiIpc.AdofaiIpc.IsMainThread)
+    if (IpcRuntime.Current.IsGameThread)
     {
       action();
       return;
     }
 
-    global::AdofaiIpc.AdofaiIpc.RunOnMainThread(action);
+    IpcRuntime.Current.RunOnGameThread(action);
   }
 }

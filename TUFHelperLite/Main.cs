@@ -1,3 +1,4 @@
+using TUFHelperLite.Presentation.Ipc;
 using System;
 using TUFHelperLite.Features;
 using TUFHelperLite.App;
@@ -27,8 +28,7 @@ public sealed class Main
   {
     try
     {
-      if (AdofaiIpcMigrationBridge.PrepareAndNotify(modEntry))
-        return true;
+      IpcRuntime.Connect(modEntry.Path);
 
       Instance = new Main(modEntry);
       DownloadStorageSettingsStore.Initialize(modEntry.Path);

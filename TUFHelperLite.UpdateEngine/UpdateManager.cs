@@ -125,7 +125,6 @@ internal sealed class UpdateManager
       Outcome = UpdateOutcomes.Candidate,
       Version = version,
       RuntimePath = runtime,
-      DependencyBootstrapPath = Path.Combine(runtime, "AdofaiIpc.Bootstrap.dll"),
     };
 
   private static HttpClient CreateClient()

@@ -33,8 +33,6 @@ internal static class Program
       if (string.IsNullOrWhiteSpace(package))
         package = CreatePackage(root, CurrentVersion);
 
-      VerifyDependencyBootstrapRepair(root);
-      VerifyLegacyBinary(root, package);
       VerifyVersionContract();
       VerifyReleaseSelection();
       VerifyMetadataLimit(root);
@@ -59,90 +57,6 @@ internal static class Program
     }
     foreach (string failure in Failures) Console.Error.WriteLine(failure);
     return 1;
-  }
-
-  private static void VerifyDependencyBootstrapRepair(string root)
-  {
-    string modRoot = Path.Combine(root, "DependencyRepair");
-    string controls = Path.Combine(modRoot, "Assets", "AdofaiIpc");
-    Directory.CreateDirectory(controls);
-    File.Copy(Required("ADOFAIIPC_BOOTSTRAP_DLL"),
-      Path.Combine(controls, "AdofaiIpc.Bootstrap.dll"));
-    string stateRoot = Path.Combine(modRoot, "DependencyBootstrap");
-    Directory.CreateDirectory(stateRoot);
-    File.WriteAllText(Path.Combine(stateRoot, "state.json"),
-      "{\"SchemaVersion\":1,\"Current\":\"1.0.0\",\"Previous\":null,\"Trial\":null}");
-
-    True("missing dependency bootstrap candidate repaired",
-      DependencyEntryPoint.RepairMissingCandidate(modRoot, controls));
-    True("dependency bootstrap candidate restored",
-      File.Exists(Path.Combine(stateRoot, "versions", "1.0.0", "AdofaiIpc.Bootstrap.dll")));
-  }
-
-  private static void VerifyLegacyBinary(string root, string package)
-  {
-    string fixture = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Fixtures", "TUFHelperLite-0.1.2.dll");
-    Equal("official 0.1.2 updater fixture SHA", LegacyFixtureSha256, Sha256(fixture));
-    string modRoot = Path.Combine(root, "Legacy");
-    Directory.CreateDirectory(modRoot);
-    Assembly legacy = Assembly.LoadFrom(fixture);
-    Type stager = legacy.GetType("TUFHelperLite.Bootstrap.UpdatePackageStager", true);
-    MethodInfo stage = stager.GetMethod("Stage", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-    try
-    {
-      stage.Invoke(null, new object[] { package, modRoot, CurrentVersion, Sha256(package) });
-      True("official 0.1.2 accepts final transport ZIP",
-        File.Exists(Path.Combine(modRoot, "Data", "updates", "pending", "pending.json")));
-
-      Type installerType = legacy.GetType("TUFHelperLite.Bootstrap.PendingUpdateInstaller", true);
-      object installer = Activator.CreateInstance(
-        installerType,
-        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-        null,
-        new object[] { modRoot, null, null },
-        null);
-      MethodInfo apply = installerType.GetMethod(
-        "ApplyPending", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-      object applied = apply.Invoke(installer, new object[] { "0.1.2" });
-      True("official 0.1.2 applies final transport ZIP", applied != null);
-      True("official 0.1.2 applies 0.1.5 core",
-        File.Exists(Path.Combine(modRoot, "TUFHelperLite.Core.dll")));
-      True("official 0.1.2 applies migration payload",
-        File.Exists(Path.Combine(modRoot, "Assets", "AdofaiIpc", "AdofaiIpc.Migration.dll")));
-      True("official 0.1.2 applies fixed launcher",
-        File.Exists(Path.Combine(modRoot, "Assets", "AdofaiIpc", "TUFHelperLite.Launcher.dll")));
-
-      string infoPath = Path.Combine(modRoot, "Info.json");
-      UnityModManager.ModInfo info = JsonConvert.DeserializeObject<UnityModManager.ModInfo>(
-        File.ReadAllText(infoPath));
-      UnityModManager.ModEntry owner = new(info, modRoot + Path.DirectorySeparatorChar);
-      string controls = Path.Combine(modRoot, "Assets", "AdofaiIpc");
-      Assembly migration = Assembly.Load(File.ReadAllBytes(Path.Combine(controls, "AdofaiIpc.Migration.dll")));
-      Type migrationType = migration.GetType("AdofaiIpc.Migration.TransitionMigration", true);
-      MethodInfo prepare = migrationType.GetMethod(
-        "Prepare",
-        BindingFlags.Static | BindingFlags.Public,
-        null,
-        new[] { typeof(UnityModManager.ModEntry), typeof(string) },
-        null);
-      True("0.1.2-applied core can prepare fixed dependency entrypoint",
-        prepare.Invoke(null, new object[] { owner, controls }) is true);
-      True("migration installs root dependency shim",
-        File.Exists(Path.Combine(modRoot, "AdofaiIpc.DependencyShim.dll")));
-      True("migration seeds dependency bootstrap state",
-        File.Exists(Path.Combine(modRoot, "DependencyBootstrap", "state.json")));
-      string migratedInfo = File.ReadAllText(infoPath);
-      True("migration switches Info.json last",
-        migratedInfo.Contains("AdofaiIpc.DependencyShim.dll") &&
-        migratedInfo.Contains("AdofaiIpc.DependencyShim.DependencyShim.Load"));
-      MethodInfo commit = installerType.GetMethod(
-        "Commit", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-      commit.Invoke(installer, new[] { applied });
-    }
-    catch (TargetInvocationException exception)
-    {
-      Failures.Add("official 0.1.2 rejected the transport ZIP: " + exception.InnerException);
-    }
   }
 
   private static void VerifyReleaseSelection()
@@ -184,7 +98,7 @@ internal static class Program
     RuntimePackageInstaller.ValidateCandidate(runtime, CurrentVersion);
     True("runtime core mapped", File.Exists(Path.Combine(runtime, "TUFHelperLite.Core.dll")));
     True("runtime engine mapped", File.Exists(Path.Combine(runtime, "TUFHelperLite.UpdateEngine.dll")));
-    True("runtime bootstrap mapped", File.Exists(Path.Combine(runtime, "AdofaiIpc.Bootstrap.dll")));
+    True("runtime IPC bundle mapped", File.Exists(Path.Combine(runtime, "ipc", "AdofaiIpc.Runtime.dll")));
     True("runtime UI assets mapped", Directory.Exists(Path.Combine(runtime, "Assets")));
     Equal("runtime install preserves user data", "preserve-me", File.ReadAllText(userData));
 
@@ -220,11 +134,11 @@ internal static class Program
   private static void VerifyLegacySeedAndStateRecovery(string root)
   {
     string modRoot = Path.Combine(root, "Seed");
-    string control = Path.Combine(modRoot, "Assets", "AdofaiIpc");
+    string control = modRoot;
     Directory.CreateDirectory(control);
     File.Copy(Required("TUFHELPER_LITE_CORE_DLL"), Path.Combine(modRoot, "TUFHelperLite.Core.dll"));
     File.Copy(Required("TUFHELPER_LITE_UPDATE_ENGINE_DLL"), Path.Combine(control, "TUFHelperLite.UpdateEngine.dll"));
-    File.Copy(Required("ADOFAIIPC_BOOTSTRAP_DLL"), Path.Combine(control, "AdofaiIpc.Bootstrap.dll"));
+    CopyDirectory(Required("ADOFAI_IPC_BUNDLE"), modRoot);
     File.WriteAllText(Path.Combine(modRoot, "Info.json"), "{\"Version\":\"0.1.4\"}");
     string ui = Path.Combine(modRoot, "Assets", "win");
     Directory.CreateDirectory(ui);
@@ -331,24 +245,12 @@ internal static class Program
     using FileStream stream = File.Create(package);
     using ZipArchive archive = new(stream, ZipArchiveMode.Create);
     AddFile(archive, "TUFHelperLite/TUFHelperLite.Core.dll", Required("TUFHELPER_LITE_CORE_DLL"));
-    AddFile(archive, "TUFHelperLite/Assets/AdofaiIpc/TUFHelperLite.Launcher.dll",
-      Required("TUFHELPER_LITE_LAUNCHER_DLL"));
-    AddFile(archive, "TUFHelperLite/Assets/AdofaiIpc/TUFHelperLite.UpdateEngine.dll",
-      Required("TUFHELPER_LITE_UPDATE_ENGINE_DLL"));
-    AddFile(archive, "TUFHelperLite/Assets/AdofaiIpc/AdofaiIpc.DependencyShim.dll",
-      Required("ADOFAIIPC_DEPENDENCY_SHIM_DLL"));
-    AddFile(archive, "TUFHelperLite/Assets/AdofaiIpc/AdofaiIpc.Bootstrap.dll",
-      Required("ADOFAIIPC_BOOTSTRAP_DLL"));
-    AddFile(archive, "TUFHelperLite/Assets/AdofaiIpc/AdofaiIpc.Migration.dll",
-      Required("ADOFAIIPC_MIGRATION_DLL"));
-    const string bootstrapManifest =
-      "{\"MinimumAdofaiIpcVersion\":\"1.0.0\"," +
-      "\"AssemblyName\":\"Assets/AdofaiIpc/TUFHelperLite.Launcher.dll\"," +
-      "\"EntryMethod\":\"TUFHelperLite.Launcher.EntryPoint.Load\"}";
-    AddText(archive, "TUFHelperLite/Assets/AdofaiIpc/AdofaiIpcBootstrap.json", bootstrapManifest);
+    AddFile(archive, "TUFHelperLite/TUFHelperLite.Launcher.dll", Required("TUFHELPER_LITE_LAUNCHER_DLL"));
+    AddFile(archive, "TUFHelperLite/TUFHelperLite.UpdateEngine.dll", Required("TUFHELPER_LITE_UPDATE_ENGINE_DLL"));
+    foreach (string file in new[] { "AdofaiIpc.Contracts.dll", "AdofaiIpc.Loader.dll", "ipc/AdofaiIpc.Runtime.dll", "ipc/manifest.json" })
+      AddFile(archive, "TUFHelperLite/" + file, Path.Combine(Required("ADOFAI_IPC_BUNDLE"), file));
     AddText(archive, "TUFHelperLite/Assets/win/ui.bundle", "asset");
     AddText(archive, "TUFHelperLite/Info.json", "{\"Version\":\"" + version + "\"}");
-    AddText(archive, "TUFHelperLite/AdofaiIpcBootstrap.json", bootstrapManifest);
     AddText(archive, "TUFHelperLite/THIRD_PARTY_NOTICES.md", "notices");
     return package;
   }

@@ -189,10 +189,8 @@ internal sealed class RuntimeStore
   {
     string info = Path.Combine(_installPath, "Info.json");
     string core = Path.Combine(_installPath, "TUFHelperLite.Core.dll");
-    string control = Path.Combine(_installPath, "Assets", "AdofaiIpc");
-    string engine = Path.Combine(control, "TUFHelperLite.UpdateEngine.dll");
-    string dependencyBootstrap = Path.Combine(control, "AdofaiIpc.Bootstrap.dll");
-    if (!File.Exists(info) || !File.Exists(core) || !File.Exists(engine) || !File.Exists(dependencyBootstrap))
+    string engine = Path.Combine(_installPath, "TUFHelperLite.UpdateEngine.dll");
+    if (!File.Exists(info) || !File.Exists(core) || !File.Exists(engine))
       throw new InvalidDataException("The legacy TUFHelperLite payload is incomplete.");
 
     Match match = VersionPattern.Match(File.ReadAllText(info));
@@ -220,7 +218,7 @@ internal sealed class RuntimeStore
         Directory.CreateDirectory(staging);
         File.Copy(core, Path.Combine(staging, "TUFHelperLite.Core.dll"));
         File.Copy(engine, Path.Combine(staging, "TUFHelperLite.UpdateEngine.dll"));
-        File.Copy(dependencyBootstrap, Path.Combine(staging, "AdofaiIpc.Bootstrap.dll"));
+        TUFHelperLite.BundledIpc.BundledIpcFiles.Copy(_installPath, staging);
         File.Copy(info, Path.Combine(staging, "Info.json"));
         CopyPayloadAssets(staging);
         Directory.CreateDirectory(_versionsRoot);

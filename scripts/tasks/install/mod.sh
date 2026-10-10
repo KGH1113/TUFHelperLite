@@ -37,11 +37,4 @@ if [ -e "$TUFHELPER_LITE_INSTALL_PATH/Runtime" ]; then
 fi
 
 copy_mod_artifacts "$TUFHELPER_LITE_INSTALL_PATH"
-# The shim follows DependencyBootstrap/state.json, even when Assets contains a
-# newer bundled DLL. Select the verified local candidate and retain old versions.
-# shellcheck disable=SC1090
-source "$ADOFAIIPC_BOOTSTRAP_LOCK"
-python3 "$TUFHELPER_LITE_PROJECT_ROOT/scripts/lib/bootstrap_install.py" \
-  "$TUFHELPER_LITE_INSTALL_PATH" "$ADOFAIIPC_BOOTSTRAP_DLL" \
-  "$ADOFAIIPC_BOOTSTRAP_VERSION" "$ADOFAIIPC_BOOTSTRAP_SHA256"
 printf 'Installed to %s\n' "$TUFHELPER_LITE_INSTALL_PATH"

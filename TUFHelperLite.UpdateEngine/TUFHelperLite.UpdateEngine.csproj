@@ -22,4 +22,7 @@
       <Private>false</Private>
     </Reference>
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../TUFHelperLite.Launcher/BundledIpcFiles.cs" Link="BundledIpcFiles.cs" />
+  </ItemGroup>
 </Project>

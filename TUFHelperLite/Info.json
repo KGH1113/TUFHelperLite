@@ -3,7 +3,6 @@
   "DisplayName": "TUFHelperLite",
   "Author": "impl",
   "Version": "0.2.0",
-  "AssemblyName": "Assets/AdofaiIpc/TUFHelperLite.Launcher.dll",
-  "EntryMethod": "TUFHelperLite.Launcher.DependencyEntryPoint.Load",
-  "LoadAfter": ["AdofaiIpc"]
+  "AssemblyName": "TUFHelperLite.Launcher.dll",
+  "EntryMethod": "TUFHelperLite.Launcher.EntryPoint.Load"
 }

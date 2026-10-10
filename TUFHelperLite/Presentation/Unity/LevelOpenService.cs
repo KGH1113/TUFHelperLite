@@ -1,3 +1,4 @@
+using TUFHelperLite.Presentation.Ipc;
 using System;
 using UnityEngine.SceneManagement;
 
@@ -12,7 +13,7 @@ public static class LevelOpenService
       throw new ArgumentException("Level path is required.", nameof(levelPath));
     }
 
-    global::AdofaiIpc.AdofaiIpc.RunOnMainThread(() =>
+    IpcRuntime.Current.RunOnGameThread(() =>
     {
       void LoadEditor()
       {

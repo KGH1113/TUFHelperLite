@@ -1,0 +1,8 @@
+{
+  "SchemaVersion": 1,
+  "RuntimeVersion": "2.0.0",
+  "ContractMajor": 1,
+  "ContractAssemblyVersion": "1.0.0.0",
+  "WireMajor": 3,
+  "Capabilities": ["commands", "game-thread", "snapshots", "local-peer", "downloads"]
+}

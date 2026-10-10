@@ -66,8 +66,7 @@ Required at runtime:
 
 - A Dance of Fire and Ice
 - UnityModManager
-- AdofaiIpc 1.0.0 or newer. A missing dependency is installed automatically. Disabled,
-  outdated, installation-failure, and load-failure states are shown by the shared AdofaiIpc dialog.
+- ADOFAI-IPC 2.0.0 DLL bundle included with the mod (contract major 1, wire major 3).
 - TUFHelperLite installed under the ADOFAI `Mods/TUFHelperLite` directory
 
 ## Build
@@ -90,12 +89,7 @@ Validate the shell workflow:
 ./scripts/run.sh check
 ```
 
-Local builds verify the pinned IPC bootstrap artifacts and activate that candidate in
-`DependencyBootstrap/state.json`; copying a new DLL into Assets alone does not change the
-shim's selected version. The installer preserves earlier candidate directories and saves
-replaced state/candidate files under `DependencyBootstrap/install-history`. Reinstalling
-also clears the generated Helper Runtime so it is seeded from the current build. The
-bootstrap activation regressions run in both build and package workflows.
+Local builds verify `vendor/adofai-ipc-runtime/SHA256SUMS`. Contracts and Loader are copied to the mod root; Runtime and manifest are copied to `ipc/`. No common IPC mod or dependency bootstrap is installed. IPC minimum runtime 2.0.0 and required capabilities are checked before feature registration. Disabling the mod disposes its registration and keeps the process host running.
 
 The package command creates both `build/TUFHelperLite.zip` and
 `build/TUFHelperLite.zip.sha256`. Upload both files, without renaming them, to a
@@ -106,22 +100,11 @@ checks the latest stable GitHub release before loading the core, verifies the
 ZIP and checksum, and can activate a newer runtime in the same game launch.
 Network or verification failures leave the current runtime untouched.
 
-The release ZIP intentionally keeps the flat layout accepted by the official
-0.1.2 updater. An existing 0.1.2 installation can therefore download 0.1.5
-automatically; the 0.1.4 migration bridge then prepares the fixed dependency
-shim and launcher and asks for one full game restart. If AdofaiIpc is older than
-0.4.0, the shared dialog also asks for a one-time AdofaiIpc reinstall before that
-restart. New installations seed the versioned runtime and load normally in the
-same launch.
-
-The published 0.1.3 updater cannot complete this transition. Users who manually
-installed 0.1.3 must manually reinstall TUFHelperLite 0.1.4 once. Releases after
-0.1.4 are handled by the fixed launcher without another manual reinstall. The
-core does not own a separate IPC compatibility modal or placeholder namespace.
+The IPC v2 transition requires one full manual reinstall and game restart from an older dependency-shim installation. The v2 launcher continues to verify and stage TUFHelperLite updates; candidate packages must contain the entire compatible IPC bundle. Files are replaced by rename, and an IPC runtime already selected by another mod is kept until restart.
 
 ### 0.2.0 highlights
 
-- Require AdofaiIpc 1.0.0 and use bidirectional WebSocket commands and events.
+- Bundle ADOFAI-IPC 2.0.0 with contract major 1 and use bidirectional WebSocket commands and events.
 - Push job, storage, folder picker, library and batch changes to subscribed browsers.
 - Observe only visible downloaded level IDs, keeping large libraries paginated.
 - Separate application change/native picker ports from IPC and Unity adapters.

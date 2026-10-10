@@ -73,13 +73,12 @@ internal static class RuntimePackageInstaller
   {
     string core = Path.Combine(root, "TUFHelperLite.Core.dll");
     string engine = Path.Combine(root, "TUFHelperLite.UpdateEngine.dll");
-    string bootstrap = Path.Combine(root, "AdofaiIpc.Bootstrap.dll");
     string info = Path.Combine(root, "Info.json");
-    if (!File.Exists(core) || !File.Exists(engine) || !File.Exists(bootstrap) || !File.Exists(info))
+    if (!File.Exists(core) || !File.Exists(engine) || !File.Exists(info))
       throw new InvalidDataException("The TUFHelperLite runtime candidate is incomplete.");
     ValidateAssembly(core, "TUFHelperLite.Core");
     ValidateAssembly(engine, "TUFHelperLite.UpdateEngine");
-    ValidateAssembly(bootstrap, "AdofaiIpc.Bootstrap");
+    TUFHelperLite.BundledIpc.BundledIpcFiles.Validate(root);
     Match match = VersionPattern.Match(File.ReadAllText(info));
     if (!match.Success || !VersionsEqual(match.Groups[1].Value, expectedVersion))
       throw new InvalidDataException("The TUFHelperLite runtime candidate version is invalid.");
@@ -118,8 +117,8 @@ internal static class RuntimePackageInstaller
       if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(entry.Name)) continue;
       if (IsSymbolicLink(entry))
         throw new InvalidDataException("TUFHelperLite update archive contains a symbolic link.");
-      if (!IsLegacyCompatiblePath(path))
-        throw new InvalidDataException("TUFHelperLite update archive is not compatible with version 0.1.2: " + path);
+      if (!IsPackagePath(path))
+        throw new InvalidDataException("TUFHelperLite update archive contains an unsupported path: " + path);
       if (!packagePaths.Add(path))
         throw new InvalidDataException("TUFHelperLite update archive contains duplicate files: " + path);
 
@@ -136,12 +135,9 @@ internal static class RuntimePackageInstaller
 
     string[] controls =
     {
-      "Assets/AdofaiIpc/AdofaiIpc.DependencyShim.dll",
-      "Assets/AdofaiIpc/AdofaiIpc.Bootstrap.dll",
-      "Assets/AdofaiIpc/AdofaiIpc.Migration.dll",
-      "Assets/AdofaiIpc/AdofaiIpcBootstrap.json",
-      "Assets/AdofaiIpc/TUFHelperLite.Launcher.dll",
-      "Assets/AdofaiIpc/TUFHelperLite.UpdateEngine.dll",
+      "AdofaiIpc.Contracts.dll", "AdofaiIpc.Loader.dll",
+      "ipc/AdofaiIpc.Runtime.dll", "ipc/manifest.json",
+      "TUFHelperLite.Launcher.dll", "TUFHelperLite.UpdateEngine.dll"
     };
     foreach (string control in controls)
       if (!packagePaths.Contains(control))
@@ -180,31 +176,26 @@ internal static class RuntimePackageInstaller
 
   private static string MapCandidatePath(string path)
   {
-    if (path.Equals("TUFHelperLite.Core.dll", StringComparison.OrdinalIgnoreCase) ||
-        path.Equals("Info.json", StringComparison.OrdinalIgnoreCase) ||
-        path.Equals("THIRD_PARTY_NOTICES.md", StringComparison.OrdinalIgnoreCase))
-      return path;
-    if (path.Equals("Assets/AdofaiIpc/TUFHelperLite.UpdateEngine.dll", StringComparison.OrdinalIgnoreCase))
-      return "TUFHelperLite.UpdateEngine.dll";
-    if (path.Equals("Assets/AdofaiIpc/AdofaiIpc.Bootstrap.dll", StringComparison.OrdinalIgnoreCase))
-      return "AdofaiIpc.Bootstrap.dll";
-    if (path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) &&
-        !path.StartsWith("Assets/AdofaiIpc/", StringComparison.OrdinalIgnoreCase))
-      return path;
-    return null;
+    if (path.Equals("TUFHelperLite.Launcher.dll", StringComparison.OrdinalIgnoreCase))
+      return null;
+    return IsPackagePath(path) ? path : null;
   }
 
-  private static bool IsLegacyCompatiblePath(string path)
+  private static bool IsPackagePath(string path)
   {
     return path.Equals("TUFHelperLite.Core.dll", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("TUFHelperLite.Launcher.dll", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("TUFHelperLite.UpdateEngine.dll", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("AdofaiIpc.Contracts.dll", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("AdofaiIpc.Loader.dll", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("ipc/AdofaiIpc.Runtime.dll", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("ipc/manifest.json", StringComparison.OrdinalIgnoreCase) ||
            path.Equals("Info.json", StringComparison.OrdinalIgnoreCase) ||
-           path.Equals("AdofaiIpcBootstrap.json", StringComparison.OrdinalIgnoreCase) ||
            path.Equals("THIRD_PARTY_NOTICES.md", StringComparison.OrdinalIgnoreCase) ||
-           path.Equals("TUFHelperLite.dll", StringComparison.OrdinalIgnoreCase) ||
-           path.Equals("AdofaiIpc.Bootstrap.dll", StringComparison.OrdinalIgnoreCase) ||
-           path.Equals("TUFHelperLite.pdb", StringComparison.OrdinalIgnoreCase) ||
            path.Equals("TUFHelperLite.Core.pdb", StringComparison.OrdinalIgnoreCase) ||
-           path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase);
+           path.StartsWith("Notices/", StringComparison.OrdinalIgnoreCase) ||
+           (path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) &&
+            !path.StartsWith("Assets/AdofaiIpc/", StringComparison.OrdinalIgnoreCase));
   }
 
   private static string NormalizeArchivePath(string value)
