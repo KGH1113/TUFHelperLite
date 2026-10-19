@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -165,7 +166,24 @@ internal static partial class Program
             Console.WriteLine("IPC_TUFHELPER_PROGRESS_JOB_ID=" + progressJob.JobId);
             break;
           case "stats":
-            Console.WriteLine("IPC_TUFHELPER_STATS=" + new JObject { ["folderStarts"] = picker.Starts, ["progressJobId"] = progressJob?.JobId }.ToString(Newtonsoft.Json.Formatting.None));
+            string tempDirectory = DownloadStorageSettingsStore.GetTempDirectory();
+            Console.WriteLine("IPC_TUFHELPER_STATS=" + new JObject {
+              ["folderStarts"] = picker.Starts, ["progressJobId"] = progressJob?.JobId,
+              ["tempDownloadMode"] = DownloadStorageSettingsStore.GetTempDownloadMode(),
+              ["tempHasFiles"] = Directory.Exists(tempDirectory) && Directory.EnumerateFileSystemEntries(tempDirectory).Any(),
+              ["tempExists"] = Directory.Exists(tempDirectory),
+              ["persistent123Exists"] = Directory.Exists(Path.Combine(DownloadCachePaths.GetDownloadRoot(), "tuf-123"))
+            }.ToString(Newtonsoft.Json.Formatting.None));
+            break;
+          case "temp.seed":
+            CreateLevel(DownloadStorageSettingsStore.GetDefaultRoot(), "temp", "fixture.adofai");
+            break;
+          case "library.seed":
+            string persistent = CreateLevel(DownloadCachePaths.GetDownloadRoot(), "tuf-123", "fixture.adofai");
+            DownloadLibraryService.RecordDownload(new TUFHelperLite.Domain.Levels.LevelDownloadResult {
+              Directory = Path.GetDirectoryName(persistent), LevelPaths = new List<string> { persistent }, SelectedLevelPath = persistent
+            }, new TUFHelperLite.Infrastructure.Tuforums.TufLevelInfo { Id = 123, Song = "Fixture level", Artist = "Fixture", DiffId = 1 }, "123");
+            TUFHelperLite.Domain.Ports.ActivityChanges.Notify(TUFHelperLite.Domain.Ports.ActivityTopic.Library);
             break;
           case "jobs.changed": TUFHelperLite.Domain.Ports.ActivityChanges.Notify(TUFHelperLite.Domain.Ports.ActivityTopic.Jobs); break;
           case "library.changed": TUFHelperLite.Domain.Ports.ActivityChanges.Notify(TUFHelperLite.Domain.Ports.ActivityTopic.Library); break;

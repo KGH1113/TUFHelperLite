@@ -35,7 +35,8 @@
 TUFHelperLite is an ADOFAI mod that exposes a local IPC bridge for
 opening TUF forum levels from browser tooling.
 
-The companion web client can also move the complete download library to a
+The companion web client's **TUFHelperLite Settings** contains temporary download
+mode, storage location and **Manage downloads**. Storage can move to a
 user-selected empty folder. TUFHelperLite copies and verifies every file before
 switching to the new location, resumes interrupted migrations on the next game
 launch, and removes the previous folder only after the new copy is active.
@@ -169,7 +170,7 @@ The IPC v2 transition requires one full manual reinstall and game restart from a
 ## Download Storage
 
 Downloads use `Mods/TUFHelperLite/Downloads` until the user selects another
-empty folder from the download manager on the TUF website. Folder selection is
+empty folder from TUFHelperLite Settings on the TUF website. Folder selection is
 performed by the local mod; the browser receives a one-time selection token and
 cannot submit an arbitrary filesystem path.
 
@@ -184,6 +185,32 @@ Storage methods are `pickFolder`, `changeStorage`, `retryChange`, and
 operation advances. `folderSelection` is called only on the app session that
 opened the picker. Selection tokens are never included in broadcasts or
 reconnect snapshots and cannot be used by another session.
+
+### Temporary downloads
+
+Enable **Temp download mode** in TUFHelperLite Settings to download directly into
+`Mods/TUFHelperLite/Downloads/temp/`. Each successful download replaces the previous
+temporary level; no `tuf-{id}` directory is created inside `temp/`. Failed or
+cancelled downloads leave the previous temporary payload intact. Temporary
+levels do not enter the saved download library.
+
+The mode persists in `Settings.json`. Its directory stays fixed even if saved
+downloads use a custom location. Disabling the mode restores that saved location
+and its library. Storage location and Manage downloads are hidden while temporary
+mode is enabled. **Flush temp** deletes the contents of `temp/` and retains the
+directory; its information tooltip explains this behavior.
+
+Finish or cancel active jobs and level selections before changing the mode or
+flushing temporary files. A replacement is downloaded and verified first. If the
+old temporary level is open, the mod uses the game's normal exit transition,
+including its unsaved-changes prompt, before activating the replacement. Cancel
+the download while it waits to retain the old files. Flush temp requires closing
+the level first. Files reserved by a pending level selection or queued game-thread
+open cannot be replaced.
+
+The generated methods `setTempDownloadMode` and `flushTemp` return the current
+settings. The initial snapshot includes `settings`, and `settingsChanged` pushes
+later changes to every registered app, including after reconnecting.
 
 ## Download Library
 
@@ -201,6 +228,13 @@ app; later changes use its `membershipChanged` handler. Neither
 initial snapshots nor progress events load and broadcast the complete library.
 Opaque cursors belong to a library revision and are discarded when the server
 reports `download_library_cursor_stale`.
+
+**Manage downloads** can delete individual saved levels through `deleteLevel`.
+Deletion accepts a numeric TUF ID, removes only its managed `tuf-{id}` directory,
+and updates library summaries and membership notifications. An already removed
+level is a harmless no-op. Deletion is blocked during active work, while the level
+is open, or when its directory contains filesystem links. Temporary mode blocks
+saved-library management methods as well as hiding the controls.
 
 The initial `snapshot` contains health, jobs, storage, batch and summary.
 `jobsChanged` and `batchChanged` push later updates. Methods such as

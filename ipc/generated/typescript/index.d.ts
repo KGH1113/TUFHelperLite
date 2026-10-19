@@ -35,6 +35,11 @@ export interface CancelResult {
     jobId: string;
     ok: boolean;
 }
+export interface DeleteLevelResult {
+    deleted: boolean;
+    id: string;
+    ok: boolean;
+}
 export interface FolderSelection {
     directory: string | null;
     errorCode: string | null;
@@ -130,11 +135,16 @@ export interface SelectResult {
     ok: boolean;
     opened: boolean;
 }
+export interface Settings {
+    tempDirectory: string;
+    tempDownloadMode: boolean;
+}
 export interface Snapshot {
     batch: Batch;
     health: Health;
     jobs: Array<Job>;
     levelIds: Array<string>;
+    settings: Settings;
     storage: Storage;
     summary: LibrarySummary | null;
 }
@@ -172,11 +182,15 @@ export interface TufHelperMod {
     "checkUpdate"(request: {
         id: string;
     }): Promise<Job>;
+    "deleteLevel"(request: {
+        id: string;
+    }): Promise<DeleteLevelResult>;
     "download"(request: {
         levelId?: string | null;
         source?: string | null;
         url: string;
     }): Promise<Job>;
+    "flushTemp"(): Promise<Settings>;
     "libraryPage"(request: {
         cursor?: string | null;
         direction?: PageDirection;
@@ -205,6 +219,9 @@ export interface TufHelperMod {
         jobId: string;
         levelPath: string;
     }): Promise<SelectResult>;
+    "setTempDownloadMode"(request: {
+        enabled: boolean;
+    }): Promise<Settings>;
     "snapshotRefresh"(): Promise<Snapshot>;
     "updateAll"(): Promise<Batch>;
     "updateLevel"(request: {
@@ -229,6 +246,9 @@ export interface TufHelperAppHandlers {
     }): void | Promise<void>;
     "membershipChanged"(request: {
         levelIds: Array<string>;
+    }): void | Promise<void>;
+    "settingsChanged"(request: {
+        settings: Settings;
     }): void | Promise<void>;
     "snapshot"(request: {
         state: Snapshot;

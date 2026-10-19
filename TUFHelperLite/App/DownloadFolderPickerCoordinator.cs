@@ -35,6 +35,7 @@ public static class DownloadFolderPickerCoordinator
 
   public static DownloadFolderPickerSnapshot Start(bool allowExisting = false)
   {
+    DownloadSettingsService.EnsurePersistentMode();
     PickOperation operation;
     lock (Gate)
     {

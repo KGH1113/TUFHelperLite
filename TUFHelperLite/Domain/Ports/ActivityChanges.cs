@@ -4,7 +4,7 @@ using System.Threading;
 namespace TUFHelperLite.Domain.Ports;
 
 [Flags]
-public enum ActivityTopic { None = 0, Jobs = 1, Library = 2, Storage = 4, Batch = 8, Folder = 16 }
+public enum ActivityTopic { None = 0, Jobs = 1, Library = 2, Storage = 4, Batch = 8, Folder = 16, Settings = 32 }
 
 /// <summary>Non-blocking application change port. Implementations must never read application state inline.</summary>
 public interface IActivityChangeSink { void Changed(ActivityTopic topic); }

@@ -12,6 +12,9 @@ namespace TUFHelperLite.Presentation.Ipc;
 
 internal static class TypedSnapshots
 {
+  internal static Wire.Settings Settings(DownloadSettingsSnapshot s) => new() {
+    TempDownloadMode = s.TempDownloadMode, TempDirectory = s.TempDirectory
+  };
   internal static Wire.Job Job(DownloadJobSnapshot s) => new Wire.Job {
     JobId = s.JobId, Kind = s.Kind, Status = s.Status switch {
       "queued" => Wire.JobStatus.Queued, "running" => Wire.JobStatus.Running,

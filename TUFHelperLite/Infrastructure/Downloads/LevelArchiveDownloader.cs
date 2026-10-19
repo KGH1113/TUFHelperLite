@@ -7,6 +7,7 @@ using System.Net;
 using System.Text;
 using System.Threading;
 using TUFHelperLite.Domain.Levels;
+using TUFHelperLite.Infrastructure.Settings;
 
 namespace TUFHelperLite.Infrastructure.Downloads;
 
@@ -22,6 +23,9 @@ public static class LevelArchiveDownloader
     {
       throw new ArgumentException("Download URL is required.", nameof(url));
     }
+
+    if (DownloadStorageSettingsStore.GetTempDownloadMode())
+      return TempLevelDownloader.Download(url, cancellationToken, onProgress);
 
     string downloadRoot = DownloadCachePaths.GetDownloadRoot();
     string key = SanitizeCacheKey(cacheKey);

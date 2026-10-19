@@ -35,8 +35,10 @@ public static class LevelUpdateCheckBatchService
 
   private static LevelUpdateCheckBatchSnapshot StartOperation(string operationKind)
   {
+    lock (DownloadSettingsService.Gate)
     lock (Gate)
     {
+      DownloadSettingsService.EnsurePersistentMode();
       if (IsActiveState(_snapshot.State)) return Clone(_snapshot);
       if (DownloadStorageMigrationService.IsMigrationActive)
         return Failure("storage_migration_in_progress", "Wait for the storage operation to finish.");

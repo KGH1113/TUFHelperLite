@@ -1,14 +1,14 @@
 {
   "source": "tufhelper2/ipc/main.tsp",
   "contractId": "tufhelperlite",
-  "contractHash": "04ac41343e4fc495e309226c68542aab6efa96af40cb7d532edfb20d0996a964",
-  "contractSourceSha256": "5ab32e5de2347b4e702d279b5b8b32a82e1bbd51b40362bac2447012f212a6ee",
+  "contractHash": "138c3a5a65977de8b1880a66d1b0011a8d16a4f98614bd2416c69beb67f2ec88",
+  "contractSourceSha256": "b4ba7b1717ae839277df808174a79e37c86e5d0d394b1a8d22716627788e4633",
   "generatorVersion": "2.0.0",
   "files": {
     ".adofai-ipc.generated.json": "2344155545b1fe7648cf99f109161bf6ef8d794385de864ca27ab09f8c98c3a1",
-    "index.ts": "1aa4258a47dcab6d8ec120585960b1f346a5b8b89c88bb59b96357c554a7888c",
-    "index.js": "ca78d9667c91385e4cb5707660868bdaaf0309b9cac9fecedd619a6b684967e5",
-    "index.d.ts": "0643ddd9c514a93e8deb16a6dbddeb86387947baaf115b4dcd72efa7237e97e8",
+    "index.ts": "47e495dbbf7a24de623c57134dd64d2f6701c44d1107c11734dd55fd3c7f28bc",
+    "index.js": "b9ef62f09f65c470bf4b145b5c2c07ad8746867efe00f37bea1c356f6eb748d1",
+    "index.d.ts": "d420d505f3be9fe70f77ac1692f696f5f3f2a27d70fc184f461feecd0ada636c",
     "package.json": "f9e9090004ddb9403aa146a9401dac55c14ddb78bd106266dff520d39206af10"
   }
 }

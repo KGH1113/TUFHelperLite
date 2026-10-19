@@ -1,5 +1,6 @@
 using TUFHelperLite.Presentation.Ipc;
 using System;
+using TUFHelperLite.App;
 using UnityEngine.SceneManagement;
 
 namespace TUFHelperLite.Presentation.Unity;
@@ -13,23 +14,42 @@ public static class LevelOpenService
       throw new ArgumentException("Level path is required.", nameof(levelPath));
     }
 
-    IpcRuntime.Current.RunOnGameThread(() =>
+    PendingLevelOpen.Reserve(levelPath);
+    try
     {
-      void LoadEditor()
+      IpcRuntime.Current.RunOnGameThread(() =>
       {
-        GCS.sceneToLoad = "scnEditor";
-        GCS.worldEntrance = null;
-        scnEditor.levelToOpenOnLoad = levelPath;
-        SceneManager.LoadScene("scnEditor");
-      }
+        try
+        {
+          void LoadEditor()
+          {
+            try
+            {
+              GCS.sceneToLoad = "scnEditor";
+              GCS.worldEntrance = null;
+              scnEditor.levelToOpenOnLoad = levelPath;
+              SceneManager.LoadScene("scnEditor");
+            }
+            catch { PendingLevelOpen.Release(levelPath); throw; }
+          }
 
-      if (scrUIController.instance == null)
-      {
-        LoadEditor();
-        return;
-      }
+          if (scrUIController.instance == null)
+          {
+            LoadEditor();
+            return;
+          }
 
-      scrUIController.instance.WipeToBlack(WipeDirection.StartsFromRight, LoadEditor);
-    });
+          scrUIController.instance.WipeToBlack(WipeDirection.StartsFromRight, LoadEditor);
+        }
+        catch { PendingLevelOpen.Release(levelPath); throw; }
+      });
+    }
+    catch { PendingLevelOpen.Release(levelPath); throw; }
+  }
+
+  internal static void ObserveOpenedLevel()
+  {
+    try { if (scnGame.instance != null) PendingLevelOpen.Release(ADOBase.levelPath); }
+    catch { }
   }
 }

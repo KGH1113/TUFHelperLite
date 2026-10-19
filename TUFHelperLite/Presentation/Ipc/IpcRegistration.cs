@@ -87,7 +87,9 @@ public static class IpcRegistration
   {
     mod.Handle(method, (request, context) => {
       context.CancellationToken.ThrowIfCancellationRequested();
-      return Task.FromResult(handler(request, context));
+      try { return Task.FromResult(handler(request, context)); }
+      catch (TUFHelperLite.Domain.Errors.LevelUpdateException error) { throw new IpcCallException(error.Code, error.Message); }
+      catch (DownloadStorageMigrationException error) { throw new IpcCallException(error.Code, error.Message); }
     });
   }
 
@@ -162,6 +164,11 @@ public static class IpcRegistration
     });
     Bind(mod, Wire.TufHelperMethods.RetryChange, (_, _) => TypedSnapshots.Storage(DownloadStorageMigrationService.Retry()));
     Bind(mod, Wire.TufHelperMethods.CancelChange, (_, _) => TypedSnapshots.Storage(DownloadStorageMigrationService.CancelChange()));
+    Bind(mod, Wire.TufHelperMethods.SetTempDownloadMode, (request, _) => TypedSnapshots.Settings(DownloadSettingsService.SetTempDownloadMode(request.Enabled)));
+    Bind(mod, Wire.TufHelperMethods.FlushTemp, (_, _) => TypedSnapshots.Settings(DownloadSettingsService.FlushTemp()));
+    Bind(mod, Wire.TufHelperMethods.DeleteLevel, (request, _) => new Wire.DeleteLevelResult {
+      Ok = true, Id = DownloadCachePaths.NormalizeLevelId(request.Id), Deleted = DownloadSettingsService.DeleteLevel(request.Id)
+    });
   }
 
   private static void ValidateSelection(string token, bool useDefault, string sessionId)
@@ -181,12 +188,14 @@ public static class IpcRegistration
       Capabilities = new[] {
         "download-storage-migration-v1", "downloaded-level-library-v1", "downloaded-level-positioned-pages-v1",
         "downloaded-level-update-v1", "downloaded-level-batch-update-check-v1",
-        "downloaded-level-batch-update-v1", "download-storage-reconnect-v1"
+        "downloaded-level-batch-update-v1", "download-storage-reconnect-v1",
+        "temp-download-mode-v1", "downloaded-level-delete-v1"
       }
     },
     Jobs = TypedSnapshots.Jobs(LevelJobService.List()), LevelIds = Array.Empty<string>(),
     Storage = TypedSnapshots.Storage(DownloadStorageMigrationService.GetStatus()),
-    Batch = TypedSnapshots.Batch(LevelUpdateCheckBatchService.GetStatus()), Summary = SafeSummary()
+    Batch = TypedSnapshots.Batch(LevelUpdateCheckBatchService.GetStatus()), Summary = SafeSummary(),
+    Settings = TypedSnapshots.Settings(DownloadSettingsService.GetStatus())
   };
 
   private static Wire.LibrarySummary SafeSummary()
@@ -197,6 +206,7 @@ public static class IpcRegistration
 
   private static string[] DownloadedMembership(string[] ids)
   {
+    if (DownloadSettingsService.GetStatus().TempDownloadMode) return Array.Empty<string>();
     string root = DownloadCachePaths.GetDownloadRoot();
     return ids.Where(id => {
       string path = Path.Combine(root, DownloadCachePaths.BuildTufCacheKey(id));
@@ -273,6 +283,12 @@ public static class IpcRegistration
         Wire.Batch batch = TypedSnapshots.Batch(LevelUpdateCheckBatchService.GetStatus());
         foreach (AppNotifications queue in apps) queue.Enqueue("batch", () => queue.App.BatchChangedAsync(
           new Wire.BatchChangedRequest { Batch = batch }, queue.App.CancellationToken));
+      }
+      if ((dirty & ActivityTopic.Settings) != 0)
+      {
+        Wire.Settings settings = TypedSnapshots.Settings(DownloadSettingsService.GetStatus());
+        foreach (AppNotifications queue in apps) queue.Enqueue("settings", () => queue.App.SettingsChangedAsync(
+          new Wire.SettingsChangedRequest { Settings = settings }, queue.App.CancellationToken));
       }
       if ((dirty & ActivityTopic.Folder) != 0) PublishFolderSelections();
     }

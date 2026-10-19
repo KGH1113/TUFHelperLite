@@ -59,6 +59,7 @@ internal static partial class Program
       RunDownloadStorageMigrationTests();
       RunDownloadLibraryTests();
       RunLevelUpdateTests();
+      RunDownloadSettingsTests();
       RunTypedIpcTests().GetAwaiter().GetResult();
     }
     finally

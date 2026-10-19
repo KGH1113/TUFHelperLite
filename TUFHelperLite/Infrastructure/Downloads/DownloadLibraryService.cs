@@ -12,6 +12,7 @@ using TUFHelperLite.App;
 using TUFHelperLite.Domain.Downloads;
 using TUFHelperLite.Domain.Levels;
 using TUFHelperLite.Infrastructure.Tuforums;
+using TUFHelperLite.Infrastructure.Settings;
 
 namespace TUFHelperLite.Infrastructure.Downloads;
 
@@ -65,6 +66,7 @@ public static class DownloadLibraryService
 
   public static DownloadedLevelPage GetPage(string cursorValue, string directionValue, int requestedLimit)
   {
+    DownloadSettingsService.EnsurePersistentMode();
     EnsureStorageAvailable();
     EnsureInitialized();
     int limit = requestedLimit <= 0 ? DefaultPageSize : Math.Min(requestedLimit, MaximumPageSize);
@@ -134,6 +136,7 @@ public static class DownloadLibraryService
 
   public static int WriteDownloadedIdSnapshot(string path, System.Threading.CancellationToken token)
   {
+    DownloadSettingsService.EnsurePersistentMode();
     EnsureStorageAvailable();
     EnsureInitialized();
     string temporary = path + ".tmp";
@@ -159,6 +162,7 @@ public static class DownloadLibraryService
 
   public static int WriteAvailableUpdateIdSnapshot(string path, System.Threading.CancellationToken token)
   {
+    DownloadSettingsService.EnsurePersistentMode();
     EnsureStorageAvailable();
     EnsureInitialized();
     string temporary = path + ".tmp";
@@ -187,6 +191,7 @@ public static class DownloadLibraryService
   public static void RecordDownload(LevelDownloadResult result, TufLevelInfo level, string levelId)
   {
     if (result == null || string.IsNullOrWhiteSpace(result.Directory)) return;
+    if (PathsEqual(result.Directory, DownloadStorageSettingsStore.GetTempDirectory())) return;
     if (!DownloadCachePaths.TryParseTufCacheKey(Path.GetFileName(result.Directory), out int parsedId))
     {
       if (!int.TryParse((levelId ?? "").Trim().TrimStart('#'), out parsedId) || parsedId <= 0) return;
@@ -239,6 +244,7 @@ public static class DownloadLibraryService
 
   internal static bool TryGetUpdateDescriptor(int id, out DownloadedLevelUpdateDescriptor descriptor)
   {
+    DownloadSettingsService.EnsurePersistentMode();
     EnsureStorageAvailable();
     EnsureInitialized();
     string directory = Path.Combine(DownloadCachePaths.GetDownloadRoot(), DownloadCachePaths.BuildTufCacheKey(id.ToString(CultureInfo.InvariantCulture)));
@@ -441,6 +447,19 @@ public static class DownloadLibraryService
       if (string.IsNullOrWhiteSpace(_summary.State)) _summary.State = "calculating";
       SaveSummaryLocked();
       if (_summary.State != "ready") StartSummaryRebuildLocked();
+    }
+  }
+
+  internal static void NotifyLevelDeleted()
+  {
+    EnsureInitialized();
+    lock (Gate)
+    {
+      _revision++;
+      _summary.Revision = _revision;
+      _summary.State = "calculating";
+      SaveSummaryLocked();
+      StartSummaryRebuildLocked();
     }
   }
 

@@ -13,6 +13,8 @@ export interface Batch { currentLevelId: string | null; currentProgress: number;
 
 export interface CancelResult { cancelled: boolean; jobId: string; ok: boolean }
 
+export interface DeleteLevelResult { deleted: boolean; id: string; ok: boolean }
+
 export interface FolderSelection { directory: string | null; errorCode: string | null; message: string | null; operationId: string; selectionKind: string | null; selectionToken: string | null; state: string }
 
 export interface Health { capabilities: Array<string>; mod: string; ok: boolean; version: string }
@@ -29,7 +31,9 @@ export interface Membership { levelIds: Array<string> }
 
 export interface SelectResult { jobId: string; levelPath: string; ok: boolean; opened: boolean }
 
-export interface Snapshot { batch: Batch; health: Health; jobs: Array<Job>; levelIds: Array<string>; storage: Storage; summary: LibrarySummary | null }
+export interface Settings { tempDirectory: string; tempDownloadMode: boolean }
+
+export interface Snapshot { batch: Batch; health: Health; jobs: Array<Job>; levelIds: Array<string>; settings: Settings; storage: Storage; summary: LibrarySummary | null }
 
 export interface Storage { bytesProcessed: number; bytesTotal: number; currentDirectory: string | null; currentLevelId: string | null; defaultDirectory: string | null; errorCode: string | null; filesProcessed: number; filesTotal: number; isDefault: boolean; message: string | null; operationId: string | null; operationKind: string | null; phase: string | null; selectionKind: string | null; sourceDirectory: string | null; state: string; targetDirectory: string | null }
 
@@ -41,7 +45,9 @@ export interface TufHelperMod {
   "changeStorage"(request: { selectionToken?: string | null; useDefault?: boolean }): Promise<Storage>;
   "checkAll"(): Promise<Batch>;
   "checkUpdate"(request: { id: string }): Promise<Job>;
+  "deleteLevel"(request: { id: string }): Promise<DeleteLevelResult>;
   "download"(request: { levelId?: string | null; source?: string | null; url: string }): Promise<Job>;
+  "flushTemp"(): Promise<Settings>;
   "libraryPage"(request: { cursor?: string | null; direction?: PageDirection; limit?: number }): Promise<LibraryPage>;
   "migrateStorage"(request: { selectionToken?: string | null; useDefault?: boolean }): Promise<Storage>;
   "openFromId"(request: { id: string; openAfterDownload?: boolean; source?: string | null }): Promise<Job>;
@@ -50,6 +56,7 @@ export interface TufHelperMod {
   "retryChange"(): Promise<Storage>;
   "retryMigration"(): Promise<Storage>;
   "selectLevel"(request: { jobId: string; levelPath: string }): Promise<SelectResult>;
+  "setTempDownloadMode"(request: { enabled: boolean }): Promise<Settings>;
   "snapshotRefresh"(): Promise<Snapshot>;
   "updateAll"(): Promise<Batch>;
   "updateLevel"(request: { id: string }): Promise<Job>;
@@ -62,13 +69,14 @@ export interface TufHelperAppHandlers {
   "jobsChanged"(request: { jobs: Array<Job> }): void | Promise<void>;
   "libraryChanged"(request: { summary: LibrarySummary | null }): void | Promise<void>;
   "membershipChanged"(request: { levelIds: Array<string> }): void | Promise<void>;
+  "settingsChanged"(request: { settings: Settings }): void | Promise<void>;
   "snapshot"(request: { state: Snapshot }): void | Promise<void>;
   "storageChanged"(request: { storage: Storage }): void | Promise<void>;
 }
 
 export const TufHelperContract: IpcContract<TufHelperMod, TufHelperAppHandlers> = defineContract<TufHelperMod, TufHelperAppHandlers>({
   "id": "tufhelperlite",
-  "hash": "04ac41343e4fc495e309226c68542aab6efa96af40cb7d532edfb20d0996a964",
+  "hash": "138c3a5a65977de8b1880a66d1b0011a8d16a4f98614bd2416c69beb67f2ec88",
   "models": {
     "Batch": {
       "object": {
@@ -104,6 +112,13 @@ export const TufHelperContract: IpcContract<TufHelperMod, TufHelperAppHandlers> 
       "object": {
         "cancelled": "boolean",
         "jobId": "string",
+        "ok": "boolean"
+      }
+    },
+    "DeleteLevelResult": {
+      "object": {
+        "deleted": "boolean",
+        "id": "string",
         "ok": "boolean"
       }
     },
@@ -310,6 +325,12 @@ export const TufHelperContract: IpcContract<TufHelperMod, TufHelperAppHandlers> 
         "opened": "boolean"
       }
     },
+    "Settings": {
+      "object": {
+        "tempDirectory": "string",
+        "tempDownloadMode": "boolean"
+      }
+    },
     "Snapshot": {
       "object": {
         "batch": {
@@ -325,6 +346,9 @@ export const TufHelperContract: IpcContract<TufHelperMod, TufHelperAppHandlers> 
         },
         "levelIds": {
           "array": "string"
+        },
+        "settings": {
+          "model": "Settings"
         },
         "storage": {
           "model": "Storage"
@@ -457,6 +481,17 @@ export const TufHelperContract: IpcContract<TufHelperMod, TufHelperAppHandlers> 
         "model": "Job"
       }
     },
+    "deleteLevel": {
+      "wireName": "rpc.mod.deletelevel",
+      "input": {
+        "object": {
+          "id": "string"
+        }
+      },
+      "output": {
+        "model": "DeleteLevelResult"
+      }
+    },
     "download": {
       "wireName": "rpc.mod.download",
       "input": {
@@ -476,6 +511,15 @@ export const TufHelperContract: IpcContract<TufHelperMod, TufHelperAppHandlers> 
       },
       "output": {
         "model": "Job"
+      }
+    },
+    "flushTemp": {
+      "wireName": "rpc.mod.flushtemp",
+      "input": {
+        "object": {}
+      },
+      "output": {
+        "model": "Settings"
       }
     },
     "libraryPage": {
@@ -604,6 +648,17 @@ export const TufHelperContract: IpcContract<TufHelperMod, TufHelperAppHandlers> 
         "model": "SelectResult"
       }
     },
+    "setTempDownloadMode": {
+      "wireName": "rpc.mod.settempdownloadmode",
+      "input": {
+        "object": {
+          "enabled": "boolean"
+        }
+      },
+      "output": {
+        "model": "Settings"
+      }
+    },
     "snapshotRefresh": {
       "wireName": "rpc.mod.snapshotrefresh",
       "input": {
@@ -702,6 +757,17 @@ export const TufHelperContract: IpcContract<TufHelperMod, TufHelperAppHandlers> 
         "object": {
           "levelIds": {
             "array": "string"
+          }
+        }
+      },
+      "output": "void"
+    },
+    "settingsChanged": {
+      "wireName": "rpc.app.settingschanged",
+      "input": {
+        "object": {
+          "settings": {
+            "model": "Settings"
           }
         }
       },

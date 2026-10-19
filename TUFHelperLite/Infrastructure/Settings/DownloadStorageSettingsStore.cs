@@ -49,6 +49,25 @@ internal static class DownloadStorageSettingsStore
     }
   }
 
+  public static bool GetTempDownloadMode()
+  {
+    EnsureInitialized();
+    lock (Gate) return _settings.TempDownloadMode;
+  }
+
+  public static string GetTempDirectory() => Path.Combine(GetDefaultRoot(), "temp");
+
+  public static void SetTempDownloadMode(bool enabled)
+  {
+    EnsureInitialized();
+    lock (Gate)
+    {
+      DownloadStorageSettings next = new() { DownloadRoot = _settings.DownloadRoot, TempDownloadMode = enabled };
+      SaveAtomic(_settingsPath, next);
+      _settings = next;
+    }
+  }
+
   public static void SetDownloadRoot(string path)
   {
     if (string.IsNullOrWhiteSpace(path))
@@ -60,7 +79,8 @@ internal static class DownloadStorageSettingsStore
     {
       DownloadStorageSettings next = new()
       {
-        DownloadRoot = PathsEqual(canonical, _defaultRoot) ? null : canonical
+        DownloadRoot = PathsEqual(canonical, _defaultRoot) ? null : canonical,
+        TempDownloadMode = _settings.TempDownloadMode
       };
       SaveAtomic(_settingsPath, next);
       _settings = next;

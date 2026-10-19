@@ -51,6 +51,13 @@ public sealed class CancelResult
   [JsonProperty("ok")] public bool Ok { get; set; } = default!;
 }
 
+public sealed class DeleteLevelResult
+{
+  [JsonProperty("deleted")] public bool Deleted { get; set; } = default!;
+  [JsonProperty("id")] public string Id { get; set; } = default!;
+  [JsonProperty("ok")] public bool Ok { get; set; } = default!;
+}
+
 public sealed class FolderSelection
 {
   [JsonProperty("directory")] public string? Directory { get; set; } = default!;
@@ -162,12 +169,19 @@ public sealed class SelectResult
   [JsonProperty("opened")] public bool Opened { get; set; } = default!;
 }
 
+public sealed class Settings
+{
+  [JsonProperty("tempDirectory")] public string TempDirectory { get; set; } = default!;
+  [JsonProperty("tempDownloadMode")] public bool TempDownloadMode { get; set; } = default!;
+}
+
 public sealed class Snapshot
 {
   [JsonProperty("batch")] public Batch Batch { get; set; } = default!;
   [JsonProperty("health")] public Health Health { get; set; } = default!;
   [JsonProperty("jobs")] public Job[] Jobs { get; set; } = default!;
   [JsonProperty("levelIds")] public string[] LevelIds { get; set; } = default!;
+  [JsonProperty("settings")] public Settings Settings { get; set; } = default!;
   [JsonProperty("storage")] public Storage Storage { get; set; } = default!;
   [JsonProperty("summary")] public LibrarySummary? Summary { get; set; } = default!;
 }
@@ -205,6 +219,11 @@ public sealed class ChangeStorageRequest
 }
 
 public sealed class CheckUpdateRequest
+{
+  [JsonProperty("id")] public string Id { get; set; } = default!;
+}
+
+public sealed class DeleteLevelRequest
 {
   [JsonProperty("id")] public string Id { get; set; } = default!;
 }
@@ -254,6 +273,11 @@ public sealed class SelectLevelRequest
   [JsonProperty("levelPath")] public string LevelPath { get; set; } = default!;
 }
 
+public sealed class SetTempDownloadModeRequest
+{
+  [JsonProperty("enabled")] public bool Enabled { get; set; } = default!;
+}
+
 public sealed class UpdateLevelRequest
 {
   [JsonProperty("id")] public string Id { get; set; } = default!;
@@ -289,6 +313,11 @@ public sealed class MembershipChangedRequest
   [JsonProperty("levelIds")] public string[] LevelIds { get; set; } = default!;
 }
 
+public sealed class SettingsChangedRequest
+{
+  [JsonProperty("settings")] public Settings Settings { get; set; } = default!;
+}
+
 public sealed class SnapshotRequest
 {
   [JsonProperty("state")] public Snapshot State { get; set; } = default!;
@@ -303,6 +332,7 @@ internal static class TufHelperSchemas
 {
   internal static IpcSchema Batch() => IpcSchema.Object(IpcSchema.Field("currentLevelId", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("currentProgress", IpcSchema.Float64), IpcSchema.Field("currentStage", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("errorCode", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("levelsFailed", IpcSchema.Int32), IpcSchema.Field("levelsProcessed", IpcSchema.Int32), IpcSchema.Field("levelsTotal", IpcSchema.Int32), IpcSchema.Field("levelsUpdated", IpcSchema.Int32), IpcSchema.Field("levelsUpToDate", IpcSchema.Int32), IpcSchema.Field("message", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("operationId", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("operationKind", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("state", IpcSchema.String), IpcSchema.Field("updatesAvailable", IpcSchema.Int32));
   internal static IpcSchema CancelResult() => IpcSchema.Object(IpcSchema.Field("cancelled", IpcSchema.Boolean), IpcSchema.Field("jobId", IpcSchema.String), IpcSchema.Field("ok", IpcSchema.Boolean));
+  internal static IpcSchema DeleteLevelResult() => IpcSchema.Object(IpcSchema.Field("deleted", IpcSchema.Boolean), IpcSchema.Field("id", IpcSchema.String), IpcSchema.Field("ok", IpcSchema.Boolean));
   internal static IpcSchema FolderSelection() => IpcSchema.Object(IpcSchema.Field("directory", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("errorCode", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("message", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("operationId", IpcSchema.String), IpcSchema.Field("selectionKind", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("selectionToken", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("state", IpcSchema.String));
   internal static IpcSchema Health() => IpcSchema.Object(IpcSchema.Field("capabilities", IpcSchema.Array(IpcSchema.String)), IpcSchema.Field("mod", IpcSchema.String), IpcSchema.Field("ok", IpcSchema.Boolean), IpcSchema.Field("version", IpcSchema.String));
   internal static IpcSchema Job() => IpcSchema.Object(IpcSchema.Field("artist", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("availableFileId", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("availableUpdatedAtUtc", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("bytesReceived", IpcSchema.SafeInt), IpcSchema.Field("cacheKey", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("createdAtUnixMs", IpcSchema.SafeInt), IpcSchema.Field("creator", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("difficultyId", IpcSchema.Int32), IpcSchema.Field("directory", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("directUrl", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("done", IpcSchema.Boolean), IpcSchema.Field("error", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("errorAvailableBytes", IpcSchema.SafeInt), IpcSchema.Field("errorCode", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("errorRequiredBytes", IpcSchema.SafeInt), IpcSchema.Field("fromCache", IpcSchema.Boolean), IpcSchema.Field("installedFileId", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("jobId", IpcSchema.String), IpcSchema.Field("kind", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("levelId", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("levelPaths", IpcSchema.Array(IpcSchema.String)), IpcSchema.Field("message", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("openAfterDownload", IpcSchema.Boolean), IpcSchema.Field("opened", IpcSchema.Boolean), IpcSchema.Field("progress", IpcSchema.Float64), IpcSchema.Field("queuePosition", IpcSchema.Int32), IpcSchema.Field("selectedLevelPath", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("sizeBytes", IpcSchema.SafeInt), IpcSchema.Field("song", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("sourceUrl", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("stage", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("status", IpcSchema.StringEnum("cancelled", "completed", "failed", "queued", "running", "waiting_selection")), IpcSchema.Field("totalBytes", IpcSchema.SafeInt), IpcSchema.Field("updatedAtUnixMs", IpcSchema.SafeInt), IpcSchema.Field("updateState", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("updateStateExpiresAtUtc", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("waitingForSelection", IpcSchema.Boolean));
@@ -311,7 +341,8 @@ internal static class TufHelperSchemas
   internal static IpcSchema LibrarySummary() => IpcSchema.Object(IpcSchema.Field("errorCode", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("lastCalculatedAtUtc", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("levelCount", IpcSchema.Int32), IpcSchema.Field("message", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("revision", IpcSchema.SafeInt), IpcSchema.Field("state", IpcSchema.String), IpcSchema.Field("totalSizeBytes", IpcSchema.SafeInt));
   internal static IpcSchema Membership() => IpcSchema.Object(IpcSchema.Field("levelIds", IpcSchema.Array(IpcSchema.String)));
   internal static IpcSchema SelectResult() => IpcSchema.Object(IpcSchema.Field("jobId", IpcSchema.String), IpcSchema.Field("levelPath", IpcSchema.String), IpcSchema.Field("ok", IpcSchema.Boolean), IpcSchema.Field("opened", IpcSchema.Boolean));
-  internal static IpcSchema Snapshot() => IpcSchema.Object(IpcSchema.Field("batch", TufHelperSchemas.Batch()), IpcSchema.Field("health", TufHelperSchemas.Health()), IpcSchema.Field("jobs", IpcSchema.Array(TufHelperSchemas.Job())), IpcSchema.Field("levelIds", IpcSchema.Array(IpcSchema.String)), IpcSchema.Field("storage", TufHelperSchemas.Storage()), IpcSchema.Field("summary", IpcSchema.Nullable(TufHelperSchemas.LibrarySummary())));
+  internal static IpcSchema Settings() => IpcSchema.Object(IpcSchema.Field("tempDirectory", IpcSchema.String), IpcSchema.Field("tempDownloadMode", IpcSchema.Boolean));
+  internal static IpcSchema Snapshot() => IpcSchema.Object(IpcSchema.Field("batch", TufHelperSchemas.Batch()), IpcSchema.Field("health", TufHelperSchemas.Health()), IpcSchema.Field("jobs", IpcSchema.Array(TufHelperSchemas.Job())), IpcSchema.Field("levelIds", IpcSchema.Array(IpcSchema.String)), IpcSchema.Field("settings", TufHelperSchemas.Settings()), IpcSchema.Field("storage", TufHelperSchemas.Storage()), IpcSchema.Field("summary", IpcSchema.Nullable(TufHelperSchemas.LibrarySummary())));
   internal static IpcSchema Storage() => IpcSchema.Object(IpcSchema.Field("bytesProcessed", IpcSchema.SafeInt), IpcSchema.Field("bytesTotal", IpcSchema.SafeInt), IpcSchema.Field("currentDirectory", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("currentLevelId", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("defaultDirectory", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("errorCode", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("filesProcessed", IpcSchema.Int32), IpcSchema.Field("filesTotal", IpcSchema.Int32), IpcSchema.Field("isDefault", IpcSchema.Boolean), IpcSchema.Field("message", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("operationId", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("operationKind", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("phase", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("selectionKind", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("sourceDirectory", IpcSchema.Nullable(IpcSchema.String)), IpcSchema.Field("state", IpcSchema.String), IpcSchema.Field("targetDirectory", IpcSchema.Nullable(IpcSchema.String)));
 }
 
@@ -324,7 +355,9 @@ public static class TufHelperMethods
   public static readonly IpcMethod<ChangeStorageRequest, Storage> ChangeStorage = new IpcMethod<ChangeStorageRequest, Storage>("changeStorage", "rpc.mod.changestorage", new IpcCodec<ChangeStorageRequest>(IpcSchema.Object(IpcSchema.Field("selectionToken", IpcSchema.Optional(IpcSchema.Nullable(IpcSchema.String))), IpcSchema.Field("useDefault", IpcSchema.Optional(IpcSchema.Boolean)))), new IpcCodec<Storage>(TufHelperSchemas.Storage()));
   public static readonly IpcMethod<IpcUnit, Batch> CheckAll = new IpcMethod<IpcUnit, Batch>("checkAll", "rpc.mod.checkall", new IpcCodec<IpcUnit>(IpcSchema.Object()), new IpcCodec<Batch>(TufHelperSchemas.Batch()));
   public static readonly IpcMethod<CheckUpdateRequest, Job> CheckUpdate = new IpcMethod<CheckUpdateRequest, Job>("checkUpdate", "rpc.mod.checkupdate", new IpcCodec<CheckUpdateRequest>(IpcSchema.Object(IpcSchema.Field("id", IpcSchema.String))), new IpcCodec<Job>(TufHelperSchemas.Job()));
+  public static readonly IpcMethod<DeleteLevelRequest, DeleteLevelResult> DeleteLevel = new IpcMethod<DeleteLevelRequest, DeleteLevelResult>("deleteLevel", "rpc.mod.deletelevel", new IpcCodec<DeleteLevelRequest>(IpcSchema.Object(IpcSchema.Field("id", IpcSchema.String))), new IpcCodec<DeleteLevelResult>(TufHelperSchemas.DeleteLevelResult()));
   public static readonly IpcMethod<DownloadRequest, Job> Download = new IpcMethod<DownloadRequest, Job>("download", "rpc.mod.download", new IpcCodec<DownloadRequest>(IpcSchema.Object(IpcSchema.Field("levelId", IpcSchema.Optional(IpcSchema.Nullable(IpcSchema.String))), IpcSchema.Field("source", IpcSchema.Optional(IpcSchema.Nullable(IpcSchema.String))), IpcSchema.Field("url", IpcSchema.String))), new IpcCodec<Job>(TufHelperSchemas.Job()));
+  public static readonly IpcMethod<IpcUnit, Settings> FlushTemp = new IpcMethod<IpcUnit, Settings>("flushTemp", "rpc.mod.flushtemp", new IpcCodec<IpcUnit>(IpcSchema.Object()), new IpcCodec<Settings>(TufHelperSchemas.Settings()));
   public static readonly IpcMethod<LibraryPageRequest, LibraryPage> LibraryPage = new IpcMethod<LibraryPageRequest, LibraryPage>("libraryPage", "rpc.mod.librarypage", new IpcCodec<LibraryPageRequest>(IpcSchema.Object(IpcSchema.Field("cursor", IpcSchema.Optional(IpcSchema.Nullable(IpcSchema.String))), IpcSchema.Field("direction", IpcSchema.Optional(IpcSchema.StringEnum("next", "previous"))), IpcSchema.Field("limit", IpcSchema.Optional(IpcSchema.Int32)))), new IpcCodec<LibraryPage>(TufHelperSchemas.LibraryPage()));
   public static readonly IpcMethod<MigrateStorageRequest, Storage> MigrateStorage = new IpcMethod<MigrateStorageRequest, Storage>("migrateStorage", "rpc.mod.migratestorage", new IpcCodec<MigrateStorageRequest>(IpcSchema.Object(IpcSchema.Field("selectionToken", IpcSchema.Optional(IpcSchema.Nullable(IpcSchema.String))), IpcSchema.Field("useDefault", IpcSchema.Optional(IpcSchema.Boolean)))), new IpcCodec<Storage>(TufHelperSchemas.Storage()));
   public static readonly IpcMethod<OpenFromIdRequest, Job> OpenFromId = new IpcMethod<OpenFromIdRequest, Job>("openFromId", "rpc.mod.openfromid", new IpcCodec<OpenFromIdRequest>(IpcSchema.Object(IpcSchema.Field("id", IpcSchema.String), IpcSchema.Field("openAfterDownload", IpcSchema.Optional(IpcSchema.Boolean)), IpcSchema.Field("source", IpcSchema.Optional(IpcSchema.Nullable(IpcSchema.String))))), new IpcCodec<Job>(TufHelperSchemas.Job()));
@@ -333,6 +366,7 @@ public static class TufHelperMethods
   public static readonly IpcMethod<IpcUnit, Storage> RetryChange = new IpcMethod<IpcUnit, Storage>("retryChange", "rpc.mod.retrychange", new IpcCodec<IpcUnit>(IpcSchema.Object()), new IpcCodec<Storage>(TufHelperSchemas.Storage()));
   public static readonly IpcMethod<IpcUnit, Storage> RetryMigration = new IpcMethod<IpcUnit, Storage>("retryMigration", "rpc.mod.retrymigration", new IpcCodec<IpcUnit>(IpcSchema.Object()), new IpcCodec<Storage>(TufHelperSchemas.Storage()));
   public static readonly IpcMethod<SelectLevelRequest, SelectResult> SelectLevel = new IpcMethod<SelectLevelRequest, SelectResult>("selectLevel", "rpc.mod.selectlevel", new IpcCodec<SelectLevelRequest>(IpcSchema.Object(IpcSchema.Field("jobId", IpcSchema.String), IpcSchema.Field("levelPath", IpcSchema.String))), new IpcCodec<SelectResult>(TufHelperSchemas.SelectResult()));
+  public static readonly IpcMethod<SetTempDownloadModeRequest, Settings> SetTempDownloadMode = new IpcMethod<SetTempDownloadModeRequest, Settings>("setTempDownloadMode", "rpc.mod.settempdownloadmode", new IpcCodec<SetTempDownloadModeRequest>(IpcSchema.Object(IpcSchema.Field("enabled", IpcSchema.Boolean))), new IpcCodec<Settings>(TufHelperSchemas.Settings()));
   public static readonly IpcMethod<IpcUnit, Snapshot> SnapshotRefresh = new IpcMethod<IpcUnit, Snapshot>("snapshotRefresh", "rpc.mod.snapshotrefresh", new IpcCodec<IpcUnit>(IpcSchema.Object()), new IpcCodec<Snapshot>(TufHelperSchemas.Snapshot()));
   public static readonly IpcMethod<IpcUnit, Batch> UpdateAll = new IpcMethod<IpcUnit, Batch>("updateAll", "rpc.mod.updateall", new IpcCodec<IpcUnit>(IpcSchema.Object()), new IpcCodec<Batch>(TufHelperSchemas.Batch()));
   public static readonly IpcMethod<UpdateLevelRequest, Job> UpdateLevel = new IpcMethod<UpdateLevelRequest, Job>("updateLevel", "rpc.mod.updatelevel", new IpcCodec<UpdateLevelRequest>(IpcSchema.Object(IpcSchema.Field("id", IpcSchema.String))), new IpcCodec<Job>(TufHelperSchemas.Job()));
@@ -346,6 +380,7 @@ internal static class TufHelperAppMethods
   public static readonly IpcMethod<JobsChangedRequest, IpcUnit> JobsChanged = new IpcMethod<JobsChangedRequest, IpcUnit>("jobsChanged", "rpc.app.jobschanged", new IpcCodec<JobsChangedRequest>(IpcSchema.Object(IpcSchema.Field("jobs", IpcSchema.Array(TufHelperSchemas.Job())))), new IpcCodec<IpcUnit>(IpcSchema.Null));
   public static readonly IpcMethod<LibraryChangedRequest, IpcUnit> LibraryChanged = new IpcMethod<LibraryChangedRequest, IpcUnit>("libraryChanged", "rpc.app.librarychanged", new IpcCodec<LibraryChangedRequest>(IpcSchema.Object(IpcSchema.Field("summary", IpcSchema.Nullable(TufHelperSchemas.LibrarySummary())))), new IpcCodec<IpcUnit>(IpcSchema.Null));
   public static readonly IpcMethod<MembershipChangedRequest, IpcUnit> MembershipChanged = new IpcMethod<MembershipChangedRequest, IpcUnit>("membershipChanged", "rpc.app.membershipchanged", new IpcCodec<MembershipChangedRequest>(IpcSchema.Object(IpcSchema.Field("levelIds", IpcSchema.Array(IpcSchema.String)))), new IpcCodec<IpcUnit>(IpcSchema.Null));
+  public static readonly IpcMethod<SettingsChangedRequest, IpcUnit> SettingsChanged = new IpcMethod<SettingsChangedRequest, IpcUnit>("settingsChanged", "rpc.app.settingschanged", new IpcCodec<SettingsChangedRequest>(IpcSchema.Object(IpcSchema.Field("settings", TufHelperSchemas.Settings()))), new IpcCodec<IpcUnit>(IpcSchema.Null));
   public static readonly IpcMethod<SnapshotRequest, IpcUnit> Snapshot = new IpcMethod<SnapshotRequest, IpcUnit>("snapshot", "rpc.app.snapshot", new IpcCodec<SnapshotRequest>(IpcSchema.Object(IpcSchema.Field("state", TufHelperSchemas.Snapshot()))), new IpcCodec<IpcUnit>(IpcSchema.Null));
   public static readonly IpcMethod<StorageChangedRequest, IpcUnit> StorageChanged = new IpcMethod<StorageChangedRequest, IpcUnit>("storageChanged", "rpc.app.storagechanged", new IpcCodec<StorageChangedRequest>(IpcSchema.Object(IpcSchema.Field("storage", TufHelperSchemas.Storage()))), new IpcCodec<IpcUnit>(IpcSchema.Null));
 }
@@ -358,6 +393,7 @@ public sealed class TufHelperApp : IpcApp
   public Task JobsChangedAsync(JobsChangedRequest request, CancellationToken cancellationToken = default) => InvokeVoidAsync(TufHelperAppMethods.JobsChanged, request, cancellationToken);
   public Task LibraryChangedAsync(LibraryChangedRequest request, CancellationToken cancellationToken = default) => InvokeVoidAsync(TufHelperAppMethods.LibraryChanged, request, cancellationToken);
   public Task MembershipChangedAsync(MembershipChangedRequest request, CancellationToken cancellationToken = default) => InvokeVoidAsync(TufHelperAppMethods.MembershipChanged, request, cancellationToken);
+  public Task SettingsChangedAsync(SettingsChangedRequest request, CancellationToken cancellationToken = default) => InvokeVoidAsync(TufHelperAppMethods.SettingsChanged, request, cancellationToken);
   public Task SnapshotAsync(SnapshotRequest request, CancellationToken cancellationToken = default) => InvokeVoidAsync(TufHelperAppMethods.Snapshot, request, cancellationToken);
   public Task StorageChangedAsync(StorageChangedRequest request, CancellationToken cancellationToken = default) => InvokeVoidAsync(TufHelperAppMethods.StorageChanged, request, cancellationToken);
 }
@@ -365,5 +401,5 @@ public sealed class TufHelperApp : IpcApp
 public sealed class TufHelperContract : ModContract<TufHelperApp>
 {
   public static readonly TufHelperContract Instance = new TufHelperContract();
-  private TufHelperContract() : base("tufhelperlite", "04ac41343e4fc495e309226c68542aab6efa96af40cb7d532edfb20d0996a964", new IpcMethod[] { TufHelperMethods.CancelChange, TufHelperMethods.CancelCheckAll, TufHelperMethods.CancelJob, TufHelperMethods.CancelUpdateAll, TufHelperMethods.ChangeStorage, TufHelperMethods.CheckAll, TufHelperMethods.CheckUpdate, TufHelperMethods.Download, TufHelperMethods.LibraryPage, TufHelperMethods.MigrateStorage, TufHelperMethods.OpenFromId, TufHelperMethods.OpenFromUrl, TufHelperMethods.PickFolder, TufHelperMethods.RetryChange, TufHelperMethods.RetryMigration, TufHelperMethods.SelectLevel, TufHelperMethods.SnapshotRefresh, TufHelperMethods.UpdateAll, TufHelperMethods.UpdateLevel, TufHelperMethods.WatchLibrary }, invoker => new TufHelperApp(invoker)) { }
+  private TufHelperContract() : base("tufhelperlite", "138c3a5a65977de8b1880a66d1b0011a8d16a4f98614bd2416c69beb67f2ec88", new IpcMethod[] { TufHelperMethods.CancelChange, TufHelperMethods.CancelCheckAll, TufHelperMethods.CancelJob, TufHelperMethods.CancelUpdateAll, TufHelperMethods.ChangeStorage, TufHelperMethods.CheckAll, TufHelperMethods.CheckUpdate, TufHelperMethods.DeleteLevel, TufHelperMethods.Download, TufHelperMethods.FlushTemp, TufHelperMethods.LibraryPage, TufHelperMethods.MigrateStorage, TufHelperMethods.OpenFromId, TufHelperMethods.OpenFromUrl, TufHelperMethods.PickFolder, TufHelperMethods.RetryChange, TufHelperMethods.RetryMigration, TufHelperMethods.SelectLevel, TufHelperMethods.SetTempDownloadMode, TufHelperMethods.SnapshotRefresh, TufHelperMethods.UpdateAll, TufHelperMethods.UpdateLevel, TufHelperMethods.WatchLibrary }, invoker => new TufHelperApp(invoker)) { }
 }

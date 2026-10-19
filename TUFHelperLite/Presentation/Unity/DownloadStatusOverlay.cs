@@ -107,6 +107,7 @@ public sealed class DownloadStatusOverlay : MonoBehaviour
     if (Time.unscaledTime >= _nextSnapshotAt)
     {
       _nextSnapshotAt = Time.unscaledTime + SnapshotInterval;
+      LevelOpenService.ObserveOpenedLevel();
       _job = LevelJobService.ActiveForModal();
 
       if (_job == null)

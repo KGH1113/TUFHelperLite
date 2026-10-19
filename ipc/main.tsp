@@ -136,7 +136,10 @@ namespace TufHelper {
     storage: Storage;
     batch: Batch;
     summary: LibrarySummary | null;
+    settings: Settings;
   }
+  model Settings { tempDownloadMode: boolean; tempDirectory: string; }
+  model DeleteLevelResult { ok: boolean; id: string; deleted: boolean; }
   model Membership { levelIds: string[]; }
   model CancelResult { ok: boolean; jobId: string; cancelled: boolean; }
   model SelectResult { ok: boolean; jobId: string; levelPath: string; opened: boolean; }
@@ -161,6 +164,9 @@ namespace TufHelper {
   op changeStorage(selectionToken?: string | null, useDefault?: boolean): Storage;
   op retryChange(): Storage;
   op cancelChange(): Storage;
+  op setTempDownloadMode(enabled: boolean): Settings;
+  op flushTemp(): Settings;
+  op deleteLevel(id: string): DeleteLevelResult;
 
   @ipc.app
   interface Browser {
@@ -171,5 +177,6 @@ namespace TufHelper {
     storageChanged(storage: Storage): void;
     batchChanged(batch: Batch): void;
     folderSelection(selection: FolderSelection): void;
+    settingsChanged(settings: Settings): void;
   }
 }

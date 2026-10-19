@@ -88,6 +88,11 @@ public static class DownloadStorageMigrationService
 
   internal static DownloadStorageMigrationSnapshot StartChangeForTarget(string target, bool allowMissing = false)
   {
+    lock (DownloadSettingsService.Gate) return StartChangeForTargetCore(target, allowMissing);
+  }
+
+  private static DownloadStorageMigrationSnapshot StartChangeForTargetCore(string target, bool allowMissing)
+  {
     string selectionKind;
     try
     {
@@ -139,6 +144,11 @@ public static class DownloadStorageMigrationService
 
   internal static DownloadStorageMigrationSnapshot StartForTarget(string target, bool allowMissing = false)
   {
+    lock (DownloadSettingsService.Gate) return StartForTargetCore(target, allowMissing);
+  }
+
+  private static DownloadStorageMigrationSnapshot StartForTargetCore(string target, bool allowMissing)
+  {
     try
     {
       target = ValidateSelectedTarget(target, allowMissing);
@@ -175,8 +185,10 @@ public static class DownloadStorageMigrationService
 
   public static DownloadStorageMigrationSnapshot Retry()
   {
+    lock (DownloadSettingsService.Gate)
     lock (Gate)
     {
+      DownloadSettingsService.EnsurePersistentMode();
       if (_snapshot.State != "failed" && _snapshot.State != "cleanup_pending")
         return Failure("storage_migration_not_retryable", "There is no failed migration to retry.");
       _snapshot.ErrorCode = null;
@@ -214,7 +226,8 @@ public static class DownloadStorageMigrationService
 
   public static bool IsDirectoryInUse(string directory)
   {
-    return !string.IsNullOrWhiteSpace(directory) && _levelInUseProbe(Normalize(directory));
+    return !string.IsNullOrWhiteSpace(directory) &&
+      (_levelInUseProbe(Normalize(directory)) || PendingLevelOpen.IsInside(directory));
   }
 
   public static string ValidateSelectedTarget(string directory, bool allowMissing = false)
@@ -230,6 +243,7 @@ public static class DownloadStorageMigrationService
     }
 
     string source = Normalize(DownloadCachePaths.GetDownloadRoot());
+    EnsureNotReservedTarget(target);
     string root = Normalize(Path.GetPathRoot(target));
     if (PathsEqual(target, root))
       throw new DownloadStorageMigrationException("storage_target_is_root", "A drive root cannot be used as the download folder.");
@@ -245,7 +259,7 @@ public static class DownloadStorageMigrationService
       Directory.CreateDirectory(target);
     }
 
-    if (Directory.EnumerateFileSystemEntries(target).Any())
+    if (StorageEntries(target).Any())
       throw new DownloadStorageMigrationException("storage_target_not_empty", "The selected folder must be empty.");
 
     try
@@ -266,7 +280,7 @@ public static class DownloadStorageMigrationService
     selectionKind = "migration";
     string target = ValidateTargetPath(directory, allowMissing);
     bool hasLevels = false;
-    foreach (string entry in Directory.EnumerateFileSystemEntries(target))
+    foreach (string entry in StorageEntries(target))
     {
       if (DownloadStorageIdentityService.IsMarkerOrOsMetadata(entry)) continue;
       if (!Directory.Exists(entry) || !DownloadCachePaths.TryParseTufCacheKey(Path.GetFileName(entry), out int id) ||
@@ -290,6 +304,7 @@ public static class DownloadStorageMigrationService
       throw new DownloadStorageMigrationException("storage_target_invalid", "The selected folder path is invalid.");
     }
     string source = Normalize(DownloadCachePaths.GetDownloadRoot());
+    EnsureNotReservedTarget(target);
     string root = Normalize(Path.GetPathRoot(target));
     if (PathsEqual(target, root))
       throw new DownloadStorageMigrationException("storage_target_is_root", "A drive root cannot be used as the download folder.");
@@ -318,21 +333,22 @@ public static class DownloadStorageMigrationService
 
   private static void EnsureCanStart(string target)
   {
+    DownloadSettingsService.EnsurePersistentMode();
     if (LevelUpdateCheckBatchService.IsActive)
       throw new DownloadStorageMigrationException("downloaded_level_batch_check_in_progress", "Wait for the batch update check to finish.");
-    if (LevelJobService.HasActiveJobs())
+    if (LevelJobService.HasPendingWork())
       throw new DownloadStorageMigrationException("download_jobs_active", "Wait for all downloads and level selections to finish.");
 
     string source = Normalize(DownloadCachePaths.GetDownloadRoot());
-    if (_levelInUseProbe(source))
+    if (IsDirectoryInUse(source))
       throw new DownloadStorageMigrationException("downloaded_level_in_use",
         "Close the downloaded level or return to the main menu before moving the download folder.");
-    if (_levelInUseProbe(target))
+    if (IsDirectoryInUse(target))
       throw new DownloadStorageMigrationException("downloaded_level_in_use",
         "Close the level opened from the selected folder before reconnecting it.");
 
     long bytes = Directory.Exists(source)
-      ? Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).Sum(path => new FileInfo(path).Length)
+      ? StorageFiles(source).Sum(path => new FileInfo(path).Length)
       : 0;
     try
     {
@@ -573,7 +589,7 @@ public static class DownloadStorageMigrationService
     string target = work.TargetDirectory;
     Directory.CreateDirectory(target);
     List<string> files = Directory.Exists(source)
-      ? Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).OrderBy(path => path).ToList()
+      ? StorageFiles(source).OrderBy(path => path).ToList()
       : new List<string>();
     long totalBytes = files.Sum(path => new FileInfo(path).Length);
     UpdateProgress("copying", 0, files.Count, 0, totalBytes, "Copying downloaded levels.");
@@ -625,7 +641,19 @@ public static class DownloadStorageMigrationService
   {
     try
     {
-      if (Directory.Exists(work.SourceDirectory)) Directory.Delete(work.SourceDirectory, true);
+      if (Directory.Exists(work.SourceDirectory))
+      {
+        if (PathsEqual(work.SourceDirectory, DownloadStorageSettingsStore.GetDefaultRoot()))
+        {
+          foreach (string entry in StorageEntries(work.SourceDirectory))
+          {
+            if (Directory.Exists(entry)) Directory.Delete(entry, true);
+            else File.Delete(entry);
+          }
+          if (!Directory.EnumerateFileSystemEntries(work.SourceDirectory).Any()) Directory.Delete(work.SourceDirectory);
+        }
+        else Directory.Delete(work.SourceDirectory, true);
+      }
       lock (Gate)
       {
         _snapshot.State = "completed";
@@ -802,6 +830,22 @@ public static class DownloadStorageMigrationService
   private static bool PathsEqual(string left, string right) =>
     string.Equals(Normalize(left), Normalize(right), StringComparison.OrdinalIgnoreCase);
 
+  private static IEnumerable<string> StorageEntries(string root) => Directory.EnumerateFileSystemEntries(root)
+    .Where(entry => !PathsEqual(root, DownloadStorageSettingsStore.GetDefaultRoot()) ||
+      (!string.Equals(Path.GetFileName(entry), "temp", StringComparison.OrdinalIgnoreCase) &&
+       !string.Equals(Path.GetFileName(entry), ".tufhelperlite-temp-work", StringComparison.OrdinalIgnoreCase)));
+
+  private static IEnumerable<string> StorageFiles(string root) => StorageEntries(root)
+    .SelectMany(entry => Directory.Exists(entry) ? Directory.EnumerateFiles(entry, "*", SearchOption.AllDirectories) : new[] { entry });
+
+  private static void EnsureNotReservedTarget(string target)
+  {
+    foreach (string reserved in new[] { DownloadStorageSettingsStore.GetTempDirectory(),
+      Path.Combine(DownloadStorageSettingsStore.GetDefaultRoot(), ".tufhelperlite-temp-work") })
+      if (PathsEqual(target, reserved) || IsInside(target, reserved))
+        throw new DownloadStorageMigrationException("storage_target_reserved", "The temporary download directory cannot be used as saved storage.");
+  }
+
   private static bool IsInside(string path, string parent) =>
     path.StartsWith(Normalize(parent) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
@@ -812,7 +856,9 @@ public static class DownloadStorageMigrationService
   {
     try
     {
+      if (scnGame.instance == null) return false;
       string levelPath = ADOBase.levelPath;
+      PendingLevelOpen.Release(levelPath);
       return !string.IsNullOrWhiteSpace(levelPath) && IsInside(Normalize(levelPath), source);
     }
     catch

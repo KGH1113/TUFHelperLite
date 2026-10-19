@@ -9,6 +9,7 @@ using TUFHelperLite.Domain.Jobs;
 using TUFHelperLite.Domain.Levels;
 using TUFHelperLite.Infrastructure.Downloads;
 using TUFHelperLite.Infrastructure.Tuforums;
+using TUFHelperLite.Infrastructure.Settings;
 using TUFHelperLite.Presentation.Unity;
 
 namespace TUFHelperLite.App;
@@ -60,13 +61,12 @@ public static class LevelJobService
         level.DiffId);
       job.WaitForPresentationObserved(PresentationWaitTimeout);
 
-      LevelOpenUpdateCheckResult updateCheck = LevelUpdateService.CheckForOpen(level.Id, level, job);
-      job.RecordUpdateCheck(
-        updateCheck.Item,
-        updateCheck.State,
-        updateCheck.InstalledFileId,
-        updateCheck.AvailableFileId,
-        updateCheck.AvailableUpdatedAtUtc);
+      if (!DownloadStorageSettingsStore.GetTempDownloadMode())
+      {
+        LevelOpenUpdateCheckResult updateCheck = LevelUpdateService.CheckForOpen(level.Id, level, job);
+        job.RecordUpdateCheck(updateCheck.Item, updateCheck.State, updateCheck.InstalledFileId,
+          updateCheck.AvailableFileId, updateCheck.AvailableUpdatedAtUtc);
+      }
 
       LevelDownloadResult result = LevelArchiveDownloader.Download(level.DownloadLink, job.CacheKey, job.Token, job.Report);
       DownloadLibraryService.RecordDownload(result, level, normalizedId);
@@ -131,6 +131,7 @@ public static class LevelJobService
 
   public static DownloadJobSnapshot StartUpdateCheck(string id)
   {
+    DownloadSettingsService.EnsurePersistentMode();
     if (LevelUpdateCheckBatchService.IsActive)
       throw new InvalidOperationException("downloaded_level_batch_check_in_progress");
     return StartUpdateCheckCore(id);
@@ -144,6 +145,7 @@ public static class LevelJobService
       throw new ArgumentException("A valid level id is required.", nameof(id));
     string cacheKey = DownloadCachePaths.BuildTufCacheKey(normalizedId);
     DownloadJob job;
+    lock (DownloadSettingsService.Gate)
     lock (Lock)
     {
       if (Jobs.Values.Any(candidate => candidate.CacheKey == cacheKey && !candidate.IsDone))
@@ -166,6 +168,7 @@ public static class LevelJobService
       throw new ArgumentException("A valid level id is required.", nameof(id));
     string cacheKey = DownloadCachePaths.BuildTufCacheKey(normalizedId);
     DownloadJob job;
+    lock (DownloadSettingsService.Gate)
     lock (Lock)
     {
       if (Jobs.Values.Any(candidate => candidate.CacheKey == cacheKey && !candidate.IsDone))
@@ -197,6 +200,7 @@ public static class LevelJobService
 
   public static DownloadJobSnapshot StartUpdate(string id)
   {
+    DownloadSettingsService.EnsurePersistentMode();
     if (LevelUpdateCheckBatchService.IsActive)
       throw new InvalidOperationException("downloaded_level_batch_check_in_progress");
     EnsureStorageAvailable();
@@ -248,7 +252,7 @@ public static class LevelJobService
 
   internal static bool ShouldDisplayInGame(DownloadJobSnapshot snapshot)
   {
-    return snapshot != null && snapshot.Kind is not "level.update" and not "level.update-check";
+    return snapshot != null && snapshot.Stage != "waiting_for_level_close" && snapshot.Kind is not "level.update" and not "level.update-check";
   }
 
   internal static bool ShouldDisplayInGame(DownloadJob job)
@@ -300,6 +304,11 @@ public static class LevelJobService
 
   public static bool SelectLevel(string jobId, string levelPath)
   {
+    lock (DownloadSettingsService.Gate) return SelectLevelCore(jobId, levelPath);
+  }
+
+  private static bool SelectLevelCore(string jobId, string levelPath)
+  {
     EnsureStorageAvailable();
     DownloadJob job;
 
@@ -323,8 +332,11 @@ public static class LevelJobService
     string cacheKey,
     bool requestAutoOpen)
   {
+    lock (DownloadSettingsService.Gate)
     lock (Lock)
     {
+      EnsureStorageAvailable();
+      if (kind is "level.update" or "level.update-check") DownloadSettingsService.EnsurePersistentMode();
       bool shouldOpen = requestAutoOpen && _autoOpenJobId == null;
       DownloadJob job = new(kind, levelId, sourceUrl, cacheKey, shouldOpen);
       Jobs[job.JobId] = job;
@@ -340,6 +352,20 @@ public static class LevelJobService
   public static bool HasActiveJobs()
   {
     lock (Lock) return Jobs.Values.Any(job => !job.IsDone);
+  }
+
+  internal static bool HasPendingWork()
+  {
+    lock (Lock) return _workerRunning || Jobs.Values.Any(job => !job.IsDone);
+  }
+
+  internal static bool HasPendingTempSelection()
+  {
+    string temp = DownloadStorageSettingsStore.GetTempDirectory();
+    lock (Lock) return Jobs.Values.Any(job => {
+      DownloadJobSnapshot snapshot = job.Snapshot();
+      return snapshot.WaitingForSelection && !snapshot.Done && string.Equals(snapshot.Directory, temp, StringComparison.OrdinalIgnoreCase);
+    });
   }
 
   private static void EnsureStorageAvailable()

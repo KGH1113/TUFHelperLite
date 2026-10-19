@@ -18,6 +18,7 @@ public sealed class Main
 
   private IpcFeature _ipcFeature;
   private bool _enabled;
+  private TempLevelRelease _tempLevelRelease;
 
   private Main(UnityModManager.ModEntry modEntry)
   {
@@ -100,6 +101,8 @@ public sealed class Main
     try
     {
       _ipcFeature = new IpcFeature();
+      _tempLevelRelease = new TempLevelRelease();
+      TempLevelDownloader.LevelRelease = _tempLevelRelease;
       _ipcFeature.Enable();
       DownloadStatusOverlay.EnsureInstalled();
       _ipcFeature.MarkReady();
@@ -108,6 +111,9 @@ public sealed class Main
     }
     catch (Exception exception)
     {
+      TempLevelDownloader.LevelRelease = null;
+      _tempLevelRelease?.Dispose();
+      _tempLevelRelease = null;
       _ipcFeature?.MarkError(exception);
       throw;
     }
@@ -118,6 +124,9 @@ public sealed class Main
     if (!_enabled) return;
 
     _ipcFeature?.Disable();
+    TempLevelDownloader.LevelRelease = null;
+    _tempLevelRelease?.Dispose();
+    _tempLevelRelease = null;
     _ipcFeature = null;
     DownloadStatusOverlay.Uninstall();
     _enabled = false;

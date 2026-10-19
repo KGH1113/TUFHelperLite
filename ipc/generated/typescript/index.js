@@ -4,7 +4,7 @@ export const JobStatus = Object.freeze({ ["Cancelled"]: "cancelled", ["Completed
 export const PageDirection = Object.freeze({ ["Next"]: "next", ["Previous"]: "previous" });
 export const TufHelperContract = defineContract({
     "id": "tufhelperlite",
-    "hash": "04ac41343e4fc495e309226c68542aab6efa96af40cb7d532edfb20d0996a964",
+    "hash": "138c3a5a65977de8b1880a66d1b0011a8d16a4f98614bd2416c69beb67f2ec88",
     "models": {
         "Batch": {
             "object": {
@@ -40,6 +40,13 @@ export const TufHelperContract = defineContract({
             "object": {
                 "cancelled": "boolean",
                 "jobId": "string",
+                "ok": "boolean"
+            }
+        },
+        "DeleteLevelResult": {
+            "object": {
+                "deleted": "boolean",
+                "id": "string",
                 "ok": "boolean"
             }
         },
@@ -246,6 +253,12 @@ export const TufHelperContract = defineContract({
                 "opened": "boolean"
             }
         },
+        "Settings": {
+            "object": {
+                "tempDirectory": "string",
+                "tempDownloadMode": "boolean"
+            }
+        },
         "Snapshot": {
             "object": {
                 "batch": {
@@ -261,6 +274,9 @@ export const TufHelperContract = defineContract({
                 },
                 "levelIds": {
                     "array": "string"
+                },
+                "settings": {
+                    "model": "Settings"
                 },
                 "storage": {
                     "model": "Storage"
@@ -393,6 +409,17 @@ export const TufHelperContract = defineContract({
                 "model": "Job"
             }
         },
+        "deleteLevel": {
+            "wireName": "rpc.mod.deletelevel",
+            "input": {
+                "object": {
+                    "id": "string"
+                }
+            },
+            "output": {
+                "model": "DeleteLevelResult"
+            }
+        },
         "download": {
             "wireName": "rpc.mod.download",
             "input": {
@@ -412,6 +439,15 @@ export const TufHelperContract = defineContract({
             },
             "output": {
                 "model": "Job"
+            }
+        },
+        "flushTemp": {
+            "wireName": "rpc.mod.flushtemp",
+            "input": {
+                "object": {}
+            },
+            "output": {
+                "model": "Settings"
             }
         },
         "libraryPage": {
@@ -540,6 +576,17 @@ export const TufHelperContract = defineContract({
                 "model": "SelectResult"
             }
         },
+        "setTempDownloadMode": {
+            "wireName": "rpc.mod.settempdownloadmode",
+            "input": {
+                "object": {
+                    "enabled": "boolean"
+                }
+            },
+            "output": {
+                "model": "Settings"
+            }
+        },
         "snapshotRefresh": {
             "wireName": "rpc.mod.snapshotrefresh",
             "input": {
@@ -638,6 +685,17 @@ export const TufHelperContract = defineContract({
                 "object": {
                     "levelIds": {
                         "array": "string"
+                    }
+                }
+            },
+            "output": "void"
+        },
+        "settingsChanged": {
+            "wireName": "rpc.app.settingschanged",
+            "input": {
+                "object": {
+                    "settings": {
+                        "model": "Settings"
                     }
                 }
             },
