@@ -19,7 +19,7 @@ internal static class Program
 {
   private const string LegacyFixtureSha256 =
     "ffbb08d28d5189528f4d64906d90e22e9f22eb23a433409e158f983c6b31cc55";
-  private const string CurrentVersion = "0.2.0";
+  private const string CurrentVersion = "0.2.1";
   private static readonly List<string> Failures = new();
 
   private static int Main()
@@ -61,11 +61,13 @@ internal static class Program
 
   private static void VerifyReleaseSelection()
   {
-    string json = ReleaseJson("0.2.1", 1234, false);
+    Version current = Version.Parse(CurrentVersion);
+    string nextVersion = new Version(current.Major, current.Minor, current.Build + 1).ToString();
+    string json = ReleaseJson(nextVersion, 1234, false);
     UpdateManager.UpdateReleaseSelection selection = UpdateManager.SelectRelease(json, CurrentVersion);
-    Equal("stable release selected", "0.2.1", selection?.Version);
-    True("equal release skipped", UpdateManager.SelectRelease(json, "0.2.1") == null);
-    True("prerelease skipped", UpdateManager.SelectRelease(ReleaseJson("0.2.1", 1234, true), CurrentVersion) == null);
+    Equal("stable release selected", nextVersion, selection?.Version);
+    True("equal release skipped", UpdateManager.SelectRelease(json, nextVersion) == null);
+    True("prerelease skipped", UpdateManager.SelectRelease(ReleaseJson(nextVersion, 1234, true), CurrentVersion) == null);
   }
 
   private static void VerifyVersionContract()

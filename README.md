@@ -114,12 +114,19 @@ The package command creates both `build/TUFHelperLite.zip` and
 `build/TUFHelperLite.zip.sha256`. Upload both files, without renaming them, to a
 stable GitHub release tagged `vX.Y.Z`; `X.Y.Z` must match `Info.json`.
 
-TUFHelperLite 0.2.0 uses a fixed launcher and versioned runtimes. The launcher
+TUFHelperLite 0.2.1 uses a fixed launcher and versioned runtimes. The launcher
 checks the latest stable GitHub release before loading the core, verifies the
 ZIP and checksum, and can activate a newer runtime in the same game launch.
 Network or verification failures leave the current runtime untouched.
 
 The IPC v2 transition requires one full manual reinstall and game restart from an older dependency-shim installation. The v2 launcher continues to verify and stage TUFHelperLite updates; candidate packages must contain the entire compatible IPC bundle. Files are replaced by rename, and an IPC runtime already selected by another mod is kept until restart.
+
+### 0.2.1 highlights
+
+- Add temporary downloads that replace the previous level while preserving the saved library.
+- Group temporary mode, storage location and download management in TUFHelperLite Settings.
+- Delete individual saved levels from Manage downloads without reloading the loaded list.
+- Keep automatic disconnect and reconnect handling quiet and preserve dismissed connection notices.
 
 ### 0.2.0 highlights
 
