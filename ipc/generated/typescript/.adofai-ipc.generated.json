@@ -1,0 +1,9 @@
+{
+  "generator": "@adofai-ipc/typespec",
+  "files": [
+    "index.d.ts",
+    "index.js",
+    "index.ts",
+    "package.json"
+  ]
+}

@@ -16,12 +16,13 @@ using TUFHelperLite.Integration;
 using TUFHelperLite.App;
 using TUFHelperLite;
 
-internal static class Program
+internal static partial class Program
 {
   private static readonly List<string> Failures = new();
 
-  private static int Main()
+  private static int Main(string[] args)
   {
+    if (Array.IndexOf(args, "--serve-ipc") >= 0) return ServeIpc();
     string root = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Downloads");
     if (Directory.Exists(root)) Directory.Delete(root, true);
     try
@@ -58,6 +59,7 @@ internal static class Program
       RunDownloadStorageMigrationTests();
       RunDownloadLibraryTests();
       RunLevelUpdateTests();
+      RunTypedIpcTests().GetAwaiter().GetResult();
     }
     finally
     {

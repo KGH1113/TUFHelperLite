@@ -1,0 +1,15 @@
+{
+  "contract": "main.tsp",
+  "typescript": {
+    "output": "generated/typescript",
+    "packageName": "@tufhelper/ipc",
+    "version": "0.2.0",
+    "workspace": false,
+    "private": true,
+    "runtimeDependency": "file:../adofai-ipc"
+  },
+  "csharp": {
+    "output": "../TUFHelperLite/Presentation/Ipc/Generated",
+    "namespace": "TUFHelperLite.Presentation.Ipc.Generated"
+  }
+}

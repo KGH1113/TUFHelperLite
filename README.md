@@ -51,14 +51,32 @@ and ask the local mod to open it through AdofaiIpc.
 
 ## Browser connection
 
-The TUF website connects directly to the local AdofaiIpc WebSocket session.
-The browser sends named commands; the mod publishes job, library, storage and
-batch changes as they happen. No HTTP RPC endpoint or status polling is used.
-After reconnecting, the mod sends a fresh snapshot. Starting or cancelling a
-job is never replayed automatically after a lost connection.
+The TUF website registers an IPC app and uses the generated `TufHelperContract`.
+The mod implements generated methods and calls the registered app's handlers
+for job, library, storage and batch changes. After reconnecting, each app
+receives a fresh snapshot. Starting or cancelling a job is never replayed
+automatically after a lost connection.
 
-The browser SDK is consumed from a canonical source snapshot checked into the
-frontend repository; this transition does not publish an npm package.
+The contract source is `ipc/main.tsp` in this repository. Generated C# is
+compiled into the mod; the generated TypeScript package and SDK are pinned in
+the frontend's `vendor/` directory. Each repository builds from its own files.
+
+### Updating the contract
+
+```bash
+npm --prefix ipc ci
+npm --prefix ipc run generate
+npm --prefix ipc run check
+TUFHELPER_LITE_SKIP_INSTALL=1 ./scripts/run.sh build
+```
+
+Generation uses the versioned tool archive in `vendor/adofai-ipc-typespec/`.
+Copy the complete `ipc/generated/typescript/` directory to the frontend's
+`vendor/tufhelper-ipc/` directory, then run `npm ci`, `npm run sdk:check` and
+`npm run test:ipc` in that repository. `source.json`
+records the contract hash, source checksum and generator version. Generated
+files are not edited manually; `ipc/SHA256SUMS` verifies the pinned inputs and
+outputs. Runtime DLLs remain pinned separately in `vendor/adofai-ipc-runtime/`.
 
 ## Runtime
 
@@ -161,11 +179,11 @@ source remains active during copy and verification. After a verified cutover,
 cleanup failures leave the new directory active and are retried on the next
 launch.
 
-Storage commands are `storage.folder-pick.start`, `storage.change.start`,
-`storage.change.retry`, and `storage.change.cancel`. The mod sends
-`storage.changed` as the operation advances. Folder picker completion is sent
-as `folder.selection` only to the peer that opened it; selection tokens are
-never included in broadcasts or reconnect snapshots.
+Storage methods are `pickFolder`, `changeStorage`, `retryChange`, and
+`cancelChange`. The mod calls the app's `storageChanged` handler as the
+operation advances. `folderSelection` is called only on the app session that
+opened the picker. Selection tokens are never included in broadcasts or
+reconnect snapshots and cannot be used by another session.
 
 ## Download Library
 
@@ -176,19 +194,21 @@ page size is 20. Existing downloads are enriched lazily and store a small
 and payload size are kept separately in `DownloadLibrarySummary.json`, so no
 full level catalog needs to be loaded into memory.
 
-The browser sends `library.page` with a cursor, direction and page limit, and
-receives the correlated `library.page` event. `library.changed` carries the
-updated summary and revision. `library.watch` accepts up to 500 currently
-visible level IDs and sends `library.membership` to that browser only. Neither
+The browser calls `libraryPage` with a cursor, direction and page limit.
+`libraryChanged` carries the updated summary and revision. `watchLibrary`
+accepts up to 500 currently visible level IDs and returns membership to that
+app; later changes use its `membershipChanged` handler. Neither
 initial snapshots nor progress events load and broadcast the complete library.
 Opaque cursors belong to a library revision and are discarded when the server
 reports `download_library_cursor_stale`.
 
-The initial `snapshot` contains health, jobs, storage, batch and summary. Jobs
-are updated by `jobs.changed`, batches by `batch.changed`, and commands such as
-opening a level receive named `job.started` events. A non-blocking application
-change port coalesces progress mutations; the IPC adapter drains only dirty
-topics outside application locks and preserves the latest terminal state.
+The initial `snapshot` contains health, jobs, storage, batch and summary.
+`jobsChanged` and `batchChanged` push later updates. Methods such as
+`openFromId` return the started job directly. A non-blocking application change
+port coalesces progress mutations; the IPC adapter drains only dirty topics
+outside application locks. A separate queue for each app retains the latest
+value per topic, sends its initial snapshot first, and discards pending
+notifications when that session disconnects.
 
 ## Tech Stack
 

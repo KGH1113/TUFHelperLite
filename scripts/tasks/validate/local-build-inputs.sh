@@ -6,9 +6,11 @@ TASK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$TASK_DIR/../../lib/context.sh"
 # shellcheck source=../../lib/guards.sh
 source "$TASK_DIR/../../lib/guards.sh"
+source "$TASK_DIR/../../lib/ipc-bundle.sh"
 
 require_executable "$DOTNET_EXE"
 require_dir "$ADOFAI_MANAGED"
 require_file "$UNITY_MOD_MANAGER_DLL"
 require_file "$ADOFAI_IPC_BUNDLE/AdofaiIpc.Contracts.dll"
 require_file "$ADOFAI_IPC_BUNDLE/AdofaiIpc.Loader.dll"
+verify_ipc_bundle

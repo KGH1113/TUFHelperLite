@@ -19,5 +19,17 @@
       <HintPath>$(AdofaiManaged)/Newtonsoft.Json.dll</HintPath>
       <Private>true</Private>
     </Reference>
+    <Reference Include="AdofaiIpc.Contracts">
+      <HintPath>$(AdofaiIpcBundle)/AdofaiIpc.Contracts.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="AdofaiIpc.Loader">
+      <HintPath>$(AdofaiIpcBundle)/AdofaiIpc.Loader.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="AdofaiIpc.Runtime">
+      <HintPath>$(AdofaiIpcBundle)/ipc/AdofaiIpc.Runtime.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
   </ItemGroup>
 </Project>

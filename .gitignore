@@ -9,6 +9,7 @@ build/
 
 # Library
 packages/
+node_modules/
 
 # Local Environment
 .env

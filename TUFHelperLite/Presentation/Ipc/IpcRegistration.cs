@@ -1,25 +1,27 @@
 using System;
 using System.Collections.Generic;
-using System.Threading;
-using TUFHelperLite.Domain.Ports;
 using System.IO;
 using System.Linq;
-using Newtonsoft.Json.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using AdofaiIpc;
+using AdofaiIpc.Contracts;
 using TUFHelperLite.App;
-using TUFHelperLite.Domain.Jobs;
+using TUFHelperLite.Domain.Ports;
 using TUFHelperLite.Infrastructure.Downloads;
+using Wire = TUFHelperLite.Presentation.Ipc.Generated;
 
 namespace TUFHelperLite.Presentation.Ipc;
 
 public static class IpcRegistration
 {
-  private static JsonFeature _namespace;
+  private static ModRegistration<Wire.TufHelperApp> _mod;
   private static readonly ActivityChangeBuffer Changes = new();
   private static readonly object PublisherGate = new();
+  private static readonly Dictionary<string, AppNotifications> Apps = new();
   private static readonly Dictionary<string, string> FolderOwners = new();
   private static readonly Dictionary<string, string> SelectionOwners = new();
   private static readonly Dictionary<string, string[]> LibraryInterests = new();
-  private static readonly HashSet<string> Subscribers = new();
   private static System.Threading.Timer _publisher;
   private static volatile bool _ready;
   private static int _publishing;
@@ -29,14 +31,24 @@ public static class IpcRegistration
     public void Dispatch(Action action) => IpcRuntime.Current.RunOnGameThread(action);
   }
 
-  public static void Register()
+  public static void Register() => Register(IpcRuntime.Current, configureNativePicker: true);
+
+  internal static void Register(IIpcRuntime runtime, bool configureNativePicker)
   {
-    _namespace = RegisterNamespace();
+    _mod = runtime.RegisterMod(Wire.TufHelperContract.Instance, ModStatus.DisplayName, new[] {
+      "https://tuforums.com", "http://localhost:5173", "http://127.0.0.1:5173",
+      "https://guhyeons-macbook-pro.tail234c02.ts.net"
+    });
+    RegisterHandlers(_mod);
+    _mod.AppConnected += AppConnected;
+    _mod.AppDisconnected += AppDisconnected;
+    _mod.AppEventFailed += error => Main.Instance?.LogException(error);
     ActivityChanges.Sink = Changes;
-    DownloadFolderPickerCoordinator.MainThread = new MainThreadDispatcher();
-    DownloadFolderPickerCoordinator.FolderPicker = new TUFHelperLite.Presentation.Unity.NativeFolderPicker();
-    _namespace.PeerSubscribed += peer => { lock (PublisherGate) Subscribers.Add(peer.PeerId); if (_ready) SendSnapshot(peer.PeerId); };
-    _namespace.PeerDisconnected += peer => { lock (PublisherGate) { Subscribers.Remove(peer.PeerId); LibraryInterests.Remove(peer.PeerId); foreach (string token in new List<string>(SelectionOwners.Keys)) if (SelectionOwners[token] == peer.PeerId) SelectionOwners.Remove(token); foreach (string id in new List<string>(FolderOwners.Keys)) if (FolderOwners[id] == peer.PeerId) FolderOwners.Remove(id); } };
+    if (configureNativePicker)
+    {
+      DownloadFolderPickerCoordinator.MainThread = new MainThreadDispatcher();
+      DownloadFolderPickerCoordinator.FolderPicker = new TUFHelperLite.Presentation.Unity.NativeFolderPicker();
+    }
     _publisher = new System.Threading.Timer(_ => PublishChanges(), null, 100, 100);
     ModStatus.SetNormal();
   }
@@ -44,16 +56,11 @@ public static class IpcRegistration
   public static void MarkReady()
   {
     _ready = true;
-    _namespace.MarkReady();
-    _namespace.Publish("snapshot", Snapshot());
+    _mod.MarkReady();
   }
 
-  public static void MarkError(Exception exception)
-  {
-    _namespace?.MarkError(
-      "tufhelperlite_initialization_failed",
-      exception?.Message ?? "TUFHelperLite initialization failed.");
-  }
+  public static void MarkError(Exception exception) => _mod?.MarkError(
+    "tufhelperlite_initialization_failed", exception?.Message ?? "TUFHelperLite initialization failed.");
 
   public static void Unregister()
   {
@@ -63,286 +70,235 @@ public static class IpcRegistration
       ActivityChanges.Sink = null;
       _publisher?.Dispose();
       _publisher = null;
-      lock (PublisherGate) { FolderOwners.Clear(); SelectionOwners.Clear(); LibraryInterests.Clear(); Subscribers.Clear(); }
-      _namespace?.Dispose();
-      _namespace = null;
+      lock (PublisherGate)
+      {
+        foreach (AppNotifications app in Apps.Values) app.Dispose();
+        Apps.Clear(); FolderOwners.Clear(); SelectionOwners.Clear(); LibraryInterests.Clear();
+      }
+      _mod?.Dispose();
+      _mod = null;
+      Changes.Drain();
     }
-    catch (Exception e)
-    {
-      Main.Instance?.LogException(e);
-    }
+    catch (Exception error) { Main.Instance?.LogException(error); }
   }
 
-  private static void RegisterHandlers(JsonFeature ipc)
+  private static void Bind<TRequest, TResult>(ModRegistration<Wire.TufHelperApp> mod,
+    IpcMethod<TRequest, TResult> method, Func<TRequest, ModCallContext<Wire.TufHelperApp>, TResult> handler)
   {
-    ipc.RegisterCommand("snapshot.refresh", command => command.Reply("snapshot", Snapshot()));
-    ipc.RegisterCommand("level.open-from-id", command => command.Reply("job.started", OpenFromId(command)));
-    ipc.RegisterCommand("level.open-from-url", command => command.Reply("job.started", OpenFromUrl(command)));
-    ipc.RegisterCommand("level.download", command => command.Reply("job.started", Download(command)));
-    ipc.RegisterCommand("library.watch", command =>
-    {
-      string[] ids = command.Payload?["ids"]?.ToObject<string[]>() ?? Array.Empty<string>();
-      if (ids.Length > 500 || ids.Any(id => !int.TryParse(id, out int number) || number <= 0)) { command.Reject("invalid_library_interest", "Choose at most 500 valid level IDs."); return; }
+    mod.Handle(method, (request, context) => {
+      context.CancellationToken.ThrowIfCancellationRequested();
+      return Task.FromResult(handler(request, context));
+    });
+  }
+
+  private static void RegisterHandlers(ModRegistration<Wire.TufHelperApp> mod)
+  {
+    Bind(mod, Wire.TufHelperMethods.SnapshotRefresh, (_, _) => Snapshot());
+    Bind(mod, Wire.TufHelperMethods.OpenFromId, (request, _) => TypedSnapshots.Job(
+      LevelJobService.StartOpenFromId(request.Id, !request.OpenAfterDownload.IsSpecified || request.OpenAfterDownload.Value)));
+    Bind(mod, Wire.TufHelperMethods.OpenFromUrl, (request, _) => TypedSnapshots.Job(
+      LevelJobService.StartOpenFromUrl(request.Url, !request.OpenAfterDownload.IsSpecified || request.OpenAfterDownload.Value)));
+    Bind(mod, Wire.TufHelperMethods.Download, (request, _) => TypedSnapshots.Job(
+      LevelJobService.StartDownload(request.Url, request.LevelId.IsSpecified ? request.LevelId.Value : null)));
+    Bind(mod, Wire.TufHelperMethods.WatchLibrary, (request, context) => {
+      string[] ids = request.Ids;
+      if (ids.Length > 500 || ids.Any(id => !int.TryParse(id, out int number) || number <= 0))
+        throw new IpcCallException("invalid_library_interest", "Choose at most 500 valid level IDs.");
       ids = ids.Distinct().ToArray();
-      lock (PublisherGate) LibraryInterests[command.PeerId] = ids;
-      command.Reply("library.membership", new { LevelIds = DownloadedMembership(ids) });
+      lock (PublisherGate)
+      {
+        context.CancellationToken.ThrowIfCancellationRequested();
+        LibraryInterests[context.App.SessionId] = ids;
+      }
+      return new Wire.Membership { LevelIds = DownloadedMembership(ids) };
     });
-    ipc.RegisterCommand("library.page", command =>
-    {
-      try { command.Reply("library.page", DownloadedPage(command)); }
+    Bind(mod, Wire.TufHelperMethods.LibraryPage, (request, _) => {
+      try
+      {
+        string direction = request.Direction.IsSpecified && request.Direction.Value == Wire.PageDirection.Previous ? "previous" : "next";
+        return TypedSnapshots.Page(DownloadLibraryService.GetPage(
+          request.Cursor.IsSpecified ? request.Cursor.Value : null, direction,
+          request.Limit.IsSpecified ? request.Limit.Value : 0));
+      }
       catch (InvalidOperationException error) when (error.Message == "download_library_cursor_stale")
-      { command.Reject("download_library_cursor_stale", "The download library changed. Reload it to continue."); }
+      { throw new IpcCallException("download_library_cursor_stale", "The download library changed. Reload it to continue."); }
     });
-    ipc.RegisterCommand("level.update.check", command => command.Reply("job.started", UpdateCheck(command)));
-    ipc.RegisterCommand("level.update.start", command => command.Reply("job.started", UpdateStart(command)));
-    ipc.RegisterCommand("level.update.check-all.start", command => command.Reply("batch.changed", UpdateCheckAllStart(command)));
-    ipc.RegisterCommand("level.update.check-all.cancel", command => command.Reply("batch.changed", UpdateCheckAllCancel(command)));
-    ipc.RegisterCommand("level.update.all.start", command => command.Reply("batch.changed", UpdateAllStart(command)));
-    ipc.RegisterCommand("level.update.all.cancel", command => command.Reply("batch.changed", UpdateAllCancel(command)));
-    ipc.RegisterCommand("level.cancel", command => command.Reply("job.cancelled", Cancel(command)));
-    ipc.RegisterCommand("level.select", command => command.Reply("level.selected", Select(command)));
-    ipc.RegisterCommand("storage.folder-pick.start", command =>
-    {
-      DownloadFolderPickerSnapshot snapshot = (DownloadFolderPickerSnapshot)StorageFolderPickStart(command);
-      if (snapshot.State == "picking") lock (PublisherGate) FolderOwners[snapshot.OperationId] = command.PeerId;
-      command.Reply("folder.pick-started", snapshot);
+    Bind(mod, Wire.TufHelperMethods.CheckUpdate, (request, _) => TypedSnapshots.Job(LevelJobService.StartUpdateCheck(request.Id)));
+    Bind(mod, Wire.TufHelperMethods.UpdateLevel, (request, _) => TypedSnapshots.Job(LevelJobService.StartUpdate(request.Id)));
+    Bind(mod, Wire.TufHelperMethods.CheckAll, (_, _) => TypedSnapshots.Batch(LevelUpdateCheckBatchService.Start()));
+    Bind(mod, Wire.TufHelperMethods.CancelCheckAll, (_, _) => TypedSnapshots.Batch(LevelUpdateCheckBatchService.Cancel()));
+    Bind(mod, Wire.TufHelperMethods.UpdateAll, (_, _) => TypedSnapshots.Batch(LevelUpdateCheckBatchService.StartUpdateAll()));
+    Bind(mod, Wire.TufHelperMethods.CancelUpdateAll, (_, _) => TypedSnapshots.Batch(LevelUpdateCheckBatchService.Cancel()));
+    Bind(mod, Wire.TufHelperMethods.CancelJob, (request, _) => {
+      bool cancelled = LevelJobService.Cancel(request.JobId);
+      return new Wire.CancelResult { Ok = cancelled, JobId = request.JobId, Cancelled = cancelled };
+    });
+    Bind(mod, Wire.TufHelperMethods.SelectLevel, (request, _) => {
+      bool opened = LevelJobService.SelectLevel(request.JobId, request.LevelPath);
+      return new Wire.SelectResult { Ok = opened, JobId = request.JobId, LevelPath = request.LevelPath, Opened = opened };
+    });
+    Bind(mod, Wire.TufHelperMethods.PickFolder, (request, context) => {
+      DownloadFolderPickerSnapshot selection = DownloadFolderPickerCoordinator.Start(request.AllowExisting.IsSpecified && request.AllowExisting.Value);
+      if (selection.State == "picking") lock (PublisherGate)
+      {
+        context.CancellationToken.ThrowIfCancellationRequested();
+        FolderOwners[selection.OperationId] = context.App.SessionId;
+      }
       Changes.Changed(ActivityTopic.Folder);
+      return TypedSnapshots.Folder(selection);
     });
-    ipc.RegisterCommand("storage.migration.start", command => command.Reply("storage.changed", StorageMigrationStart(command)));
-    ipc.RegisterCommand("storage.migration.retry", command => command.Reply("storage.changed", StorageMigrationRetry(command)));
-    ipc.RegisterCommand("storage.change.start", command => command.Reply("storage.changed", StorageChangeStart(command)));
-    ipc.RegisterCommand("storage.change.retry", command => command.Reply("storage.changed", StorageChangeRetry(command)));
-    ipc.RegisterCommand("storage.change.cancel", command => command.Reply("storage.changed", StorageChangeCancel(command)));
-
+    Bind(mod, Wire.TufHelperMethods.MigrateStorage, (request, context) => {
+      string token = request.SelectionToken.IsSpecified ? request.SelectionToken.Value : null;
+      bool useDefault = request.UseDefault.IsSpecified && request.UseDefault.Value;
+      ValidateSelection(token, useDefault, context.App.SessionId);
+      return TypedSnapshots.Storage(DownloadStorageMigrationService.Start(token, useDefault));
+    });
+    Bind(mod, Wire.TufHelperMethods.RetryMigration, (_, _) => TypedSnapshots.Storage(DownloadStorageMigrationService.Retry()));
+    Bind(mod, Wire.TufHelperMethods.ChangeStorage, (request, context) => {
+      string token = request.SelectionToken.IsSpecified ? request.SelectionToken.Value : null;
+      bool useDefault = request.UseDefault.IsSpecified && request.UseDefault.Value;
+      ValidateSelection(token, useDefault, context.App.SessionId);
+      return TypedSnapshots.Storage(DownloadStorageMigrationService.StartChange(token, useDefault));
+    });
+    Bind(mod, Wire.TufHelperMethods.RetryChange, (_, _) => TypedSnapshots.Storage(DownloadStorageMigrationService.Retry()));
+    Bind(mod, Wire.TufHelperMethods.CancelChange, (_, _) => TypedSnapshots.Storage(DownloadStorageMigrationService.CancelChange()));
   }
 
-  private static object Snapshot() => new
+  private static void ValidateSelection(string token, bool useDefault, string sessionId)
   {
-    Health = Health(null),
-    Jobs = LevelJobService.List(),
-    LevelIds = Array.Empty<string>(),
-    Storage = DownloadStorageMigrationService.GetStatus(),
-    Batch = LevelUpdateCheckBatchService.GetStatus(),
-    Summary = SafeSummary()
+    if (useDefault) return;
+    lock (PublisherGate)
+    {
+      if (string.IsNullOrEmpty(token) || !SelectionOwners.TryGetValue(token, out string owner) || owner != sessionId)
+        throw new IpcCallException("selection_token_invalid", "Choose a download folder again to continue.");
+      SelectionOwners.Remove(token);
+    }
+  }
+
+  private static Wire.Snapshot Snapshot() => new Wire.Snapshot {
+    Health = new Wire.Health {
+      Ok = true, Mod = "TUFHelperLite", Version = ModStatus.Version,
+      Capabilities = new[] {
+        "download-storage-migration-v1", "downloaded-level-library-v1", "downloaded-level-positioned-pages-v1",
+        "downloaded-level-update-v1", "downloaded-level-batch-update-check-v1",
+        "downloaded-level-batch-update-v1", "download-storage-reconnect-v1"
+      }
+    },
+    Jobs = TypedSnapshots.Jobs(LevelJobService.List()), LevelIds = Array.Empty<string>(),
+    Storage = TypedSnapshots.Storage(DownloadStorageMigrationService.GetStatus()),
+    Batch = TypedSnapshots.Batch(LevelUpdateCheckBatchService.GetStatus()), Summary = SafeSummary()
   };
+
+  private static Wire.LibrarySummary SafeSummary()
+  {
+    try { return TypedSnapshots.Summary(DownloadLibraryService.GetSummary()); }
+    catch { return null; } // Library reads can be temporarily blocked during storage cutover.
+  }
 
   private static string[] DownloadedMembership(string[] ids)
   {
     string root = DownloadCachePaths.GetDownloadRoot();
-    return ids.Where(id =>
-    {
+    return ids.Where(id => {
       string path = Path.Combine(root, DownloadCachePaths.BuildTufCacheKey(id));
-      return Directory.Exists(path) && Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Any(file => string.Equals(Path.GetExtension(file), ".adofai", StringComparison.OrdinalIgnoreCase));
+      return Directory.Exists(path) && Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+        .Any(file => string.Equals(Path.GetExtension(file), ".adofai", StringComparison.OrdinalIgnoreCase));
     }).ToArray();
   }
 
-  private static object SafeSummary()
+  private static void AppConnected(Wire.TufHelperApp app)
   {
-    try { return DownloadLibraryService.GetSummary(); }
-    catch { return null; } // Library reads can be temporarily blocked during storage cutover.
+    if (app.CancellationToken.IsCancellationRequested) return;
+    lock (PublisherGate)
+    {
+      if (!_ready || app.CancellationToken.IsCancellationRequested) return;
+      Wire.Snapshot snapshot = Snapshot();
+      var queue = new AppNotifications(app);
+      Apps.Add(app.SessionId, queue);
+      queue.Enqueue("snapshot", () => app.SnapshotAsync(new Wire.SnapshotRequest { State = snapshot }, app.CancellationToken));
+    }
   }
 
-  private static void SendSnapshot(string peerId)
+  private static void AppDisconnected(Wire.TufHelperApp app)
   {
-    try { _namespace?.SendToPeer(peerId, "snapshot", Snapshot()); }
-    catch (Exception exception) { Main.Instance?.LogException(exception); }
+    lock (PublisherGate)
+    {
+      if (Apps.TryGetValue(app.SessionId, out AppNotifications queue)) queue.Dispose();
+      Apps.Remove(app.SessionId); LibraryInterests.Remove(app.SessionId);
+      foreach (string token in SelectionOwners.Keys.ToArray()) if (SelectionOwners[token] == app.SessionId) SelectionOwners.Remove(token);
+      foreach (string operation in FolderOwners.Keys.ToArray()) if (FolderOwners[operation] == app.SessionId) FolderOwners.Remove(operation);
+    }
   }
 
   private static void PublishChanges()
   {
     if (!_ready) return;
-    lock (PublisherGate) if (Subscribers.Count == 0) return;
+    lock (PublisherGate) if (Apps.Count == 0) return;
     if (Interlocked.Exchange(ref _publishing, 1) != 0) return;
     ActivityTopic dirty = ActivityTopic.None;
     try
     {
       dirty = Changes.Drain();
-      JsonFeature ipc = _namespace;
-      if (ipc == null) return;
-      if ((dirty & ActivityTopic.Jobs) != 0) ipc.Publish("jobs.changed", new { Jobs = LevelJobService.List() });
+      AppNotifications[] apps;
+      lock (PublisherGate) apps = Apps.Values.ToArray();
+      if ((dirty & ActivityTopic.Jobs) != 0)
+      {
+        Wire.Job[] jobs = TypedSnapshots.Jobs(LevelJobService.List());
+        foreach (AppNotifications queue in apps) queue.Enqueue("jobs", () => queue.App.JobsChangedAsync(
+          new Wire.JobsChangedRequest { Jobs = jobs }, queue.App.CancellationToken));
+      }
       if ((dirty & ActivityTopic.Library) != 0)
       {
-        ipc.Publish("library.changed", new { Summary = SafeSummary() });
+        Wire.LibrarySummary summary = SafeSummary();
+        foreach (AppNotifications queue in apps) queue.Enqueue("library", () => queue.App.LibraryChangedAsync(
+          new Wire.LibraryChangedRequest { Summary = summary }, queue.App.CancellationToken));
         KeyValuePair<string, string[]>[] interests;
-        lock (PublisherGate) interests = new List<KeyValuePair<string, string[]>>(LibraryInterests).ToArray();
-        foreach (KeyValuePair<string, string[]> interest in interests) ipc.SendToPeer(interest.Key, "library.membership", new { LevelIds = DownloadedMembership(interest.Value) });
-      }
-      if ((dirty & ActivityTopic.Storage) != 0) ipc.Publish("storage.changed", DownloadStorageMigrationService.GetStatus());
-      if ((dirty & ActivityTopic.Batch) != 0) ipc.Publish("batch.changed", LevelUpdateCheckBatchService.GetStatus());
-      if ((dirty & ActivityTopic.Folder) != 0)
-      {
-        KeyValuePair<string, string>[] owners;
-        lock (PublisherGate) owners = new List<KeyValuePair<string, string>>(FolderOwners).ToArray();
-        foreach (KeyValuePair<string, string> owner in owners)
+        lock (PublisherGate) interests = LibraryInterests.ToArray();
+        foreach (var interest in interests)
         {
-          DownloadFolderPickerSnapshot snapshot = DownloadFolderPickerCoordinator.GetStatus(owner.Key);
-          if (snapshot.State == "picking") continue;
-          if (!string.IsNullOrEmpty(snapshot.SelectionToken)) lock (PublisherGate) { SelectionOwners.Clear(); SelectionOwners[snapshot.SelectionToken] = owner.Value; }
-          ipc.SendToPeer(owner.Value, "folder.selection", snapshot);
-          lock (PublisherGate) FolderOwners.Remove(owner.Key);
+          AppNotifications queue;
+          lock (PublisherGate) if (!Apps.TryGetValue(interest.Key, out queue)) continue;
+          string[] ids = DownloadedMembership(interest.Value);
+          queue.Enqueue("membership", () => queue.App.MembershipChangedAsync(
+            new Wire.MembershipChangedRequest { LevelIds = ids }, queue.App.CancellationToken));
         }
       }
+      if ((dirty & ActivityTopic.Storage) != 0)
+      {
+        Wire.Storage storage = TypedSnapshots.Storage(DownloadStorageMigrationService.GetStatus());
+        foreach (AppNotifications queue in apps) queue.Enqueue("storage", () => queue.App.StorageChangedAsync(
+          new Wire.StorageChangedRequest { Storage = storage }, queue.App.CancellationToken));
+      }
+      if ((dirty & ActivityTopic.Batch) != 0)
+      {
+        Wire.Batch batch = TypedSnapshots.Batch(LevelUpdateCheckBatchService.GetStatus());
+        foreach (AppNotifications queue in apps) queue.Enqueue("batch", () => queue.App.BatchChangedAsync(
+          new Wire.BatchChangedRequest { Batch = batch }, queue.App.CancellationToken));
+      }
+      if ((dirty & ActivityTopic.Folder) != 0) PublishFolderSelections();
     }
-    catch (Exception exception) { Changes.Changed(dirty); Main.Instance?.LogException(exception); }
+    catch (Exception error) { Changes.Changed(dirty); Main.Instance?.LogException(error); }
     finally { Volatile.Write(ref _publishing, 0); }
   }
 
-  private static JsonFeature RegisterNamespace()
+  private static void PublishFolderSelections()
   {
-    return JsonFeature.Register(
-      new AdofaiIpc.Contracts.FeatureDescription("tufhelperlite", ModStatus.Version,
-        protocolMajor: 1, displayName: ModStatus.DisplayName, allowedOrigins: new[]
-        {
-          "https://tuforums.com", "http://localhost", "http://127.0.0.1",
-          "https://guhyeons-macbook-pro.tail234c02.ts.net"
-        }), RegisterHandlers);
-  }
-
-  private static object Health(JsonCommand request)
-  {
-    return new HealthResponse
+    KeyValuePair<string, string>[] owners;
+    lock (PublisherGate) owners = FolderOwners.ToArray();
+    foreach (var owner in owners)
     {
-      Ok = true,
-      Mod = "TUFHelperLite",
-      Version = Main.Instance.Version.ToString(),
-      Capabilities = new[]
-      {
-        "download-storage-migration-v1",
-        "downloaded-level-library-v1",
-        "downloaded-level-positioned-pages-v1",
-        "downloaded-level-update-v1",
-        "downloaded-level-batch-update-check-v1",
-        "downloaded-level-batch-update-v1",
-        "download-storage-reconnect-v1"
-      }
-    };
-  }
-
-  private static object OpenFromId(JsonCommand request)
-  {
-    OpenLevelByIdRequest body = ReadPayload<OpenLevelByIdRequest>(request);
-
-    return LevelJobService.StartOpenFromId(body?.Id, body == null || body.OpenAfterDownload);
-  }
-
-  private static object OpenFromUrl(JsonCommand request)
-  {
-    OpenLevelByUrlRequest body = ReadPayload<OpenLevelByUrlRequest>(request);
-
-    return LevelJobService.StartOpenFromUrl(body?.Url, body == null || body.OpenAfterDownload);
-  }
-
-  private static object Download(JsonCommand request)
-  {
-    DownloadLevelRequest body = ReadPayload<DownloadLevelRequest>(request);
-
-    return LevelJobService.StartDownload(body?.Url, body?.LevelId);
-  }
-
-  private static object DownloadedPage(JsonCommand request)
-  {
-    DownloadedLevelPageRequest body = ReadPayload<DownloadedLevelPageRequest>(request);
-    return DownloadLibraryService.GetPage(body?.Cursor, body?.Direction, body?.Limit ?? 0);
-  }
-
-  private static object UpdateCheck(JsonCommand request)
-  {
-    LevelUpdateRequest body = ReadPayload<LevelUpdateRequest>(request);
-    return LevelJobService.StartUpdateCheck(body?.Id);
-  }
-
-  private static object UpdateStart(JsonCommand request)
-  {
-    LevelUpdateRequest body = ReadPayload<LevelUpdateRequest>(request);
-    return LevelJobService.StartUpdate(body?.Id);
-  }
-
-  private static object UpdateCheckAllStart(JsonCommand request) => LevelUpdateCheckBatchService.Start();
-
-  private static object UpdateCheckAllCancel(JsonCommand request) => LevelUpdateCheckBatchService.Cancel();
-
-  private static object UpdateAllStart(JsonCommand request) => LevelUpdateCheckBatchService.StartUpdateAll();
-
-  private static object UpdateAllCancel(JsonCommand request) => LevelUpdateCheckBatchService.Cancel();
-
-  private static object Cancel(JsonCommand request)
-  {
-    JobStatusRequest body = ReadPayload<JobStatusRequest>(request);
-    bool cancelled = LevelJobService.Cancel(body?.JobId);
-
-    return new JobCancelResponse
-    {
-      Ok = cancelled,
-      JobId = body?.JobId,
-      Cancelled = cancelled
-    };
-  }
-
-  private static object Select(JsonCommand request)
-  {
-    SelectLevelRequest body = ReadPayload<SelectLevelRequest>(request);
-    bool opened = LevelJobService.SelectLevel(body?.JobId, body?.LevelPath);
-
-    return new SelectLevelResponse
-    {
-      Ok = opened,
-      JobId = body?.JobId,
-      LevelPath = body?.LevelPath,
-      Opened = opened
-    };
-  }
-
-  private static object StorageFolderPickStart(JsonCommand request)
-  {
-    FolderPickerStartRequest body = ReadPayload<FolderPickerStartRequest>(request);
-    return DownloadFolderPickerCoordinator.Start(body?.AllowExisting == true);
-  }
-
-  private static object StorageMigrationStart(JsonCommand request)
-  {
-    StorageMigrationStartRequest body = ReadPayload<StorageMigrationStartRequest>(request);
-    if (body?.UseDefault != true)
-    {
+      DownloadFolderPickerSnapshot snapshot = DownloadFolderPickerCoordinator.GetStatus(owner.Key);
+      if (snapshot.State == "picking") continue;
+      AppNotifications queue;
       lock (PublisherGate)
       {
-        if (body == null || string.IsNullOrEmpty(body.SelectionToken) || !SelectionOwners.TryGetValue(body.SelectionToken, out string peerId) || peerId != request.PeerId)
-        { request.Reject("selection_token_invalid", "Choose a download folder again to continue."); return null; }
+        FolderOwners.Remove(owner.Key);
+        if (!Apps.TryGetValue(owner.Value, out queue)) continue;
+        if (!string.IsNullOrEmpty(snapshot.SelectionToken))
+        { SelectionOwners.Clear(); SelectionOwners[snapshot.SelectionToken] = owner.Value; }
       }
+      Wire.FolderSelection selection = TypedSnapshots.Folder(snapshot);
+      queue.Enqueue("folder", () => queue.App.FolderSelectionAsync(
+        new Wire.FolderSelectionRequest { Selection = selection }, queue.App.CancellationToken));
     }
-    return DownloadStorageMigrationService.Start(body?.SelectionToken, body?.UseDefault == true);
   }
-
-  private static object StorageMigrationRetry(JsonCommand request)
-  {
-    return DownloadStorageMigrationService.Retry();
-  }
-
-  private static object StorageChangeStart(JsonCommand request)
-  {
-    StorageMigrationStartRequest body = ReadPayload<StorageMigrationStartRequest>(request);
-    if (body?.UseDefault != true)
-    {
-      lock (PublisherGate)
-      {
-        if (body == null || string.IsNullOrEmpty(body.SelectionToken) || !SelectionOwners.TryGetValue(body.SelectionToken, out string peerId) || peerId != request.PeerId)
-        { request.Reject("selection_token_invalid", "Choose a download folder again to continue."); return null; }
-      }
-    }
-    return DownloadStorageMigrationService.StartChange(body?.SelectionToken, body?.UseDefault == true);
-  }
-
-  private static object StorageChangeRetry(JsonCommand request) => DownloadStorageMigrationService.Retry();
-
-  private static object StorageChangeCancel(JsonCommand request) => DownloadStorageMigrationService.CancelChange();
-
-  private static T ReadPayload<T>(JsonCommand request) where T : class
-  {
-    if (request?.Payload == null || request.Payload.Type == JTokenType.Null)
-    {
-      return null;
-    }
-
-    return request.Payload.ToObject<T>();
-  }
-
 }

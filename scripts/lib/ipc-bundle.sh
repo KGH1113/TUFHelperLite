@@ -3,6 +3,8 @@
 verify_ipc_bundle() {
   require_file "$ADOFAI_IPC_BUNDLE/SHA256SUMS"
   (cd "$ADOFAI_IPC_BUNDLE" && shasum -a 256 -c SHA256SUMS)
+  require_file "$TUFHELPER_LITE_PROJECT_ROOT/ipc/SHA256SUMS"
+  (cd "$TUFHELPER_LITE_PROJECT_ROOT" && shasum -a 256 -c ipc/SHA256SUMS)
 }
 copy_ipc_bundle() {
   local destination="$1" name temporary

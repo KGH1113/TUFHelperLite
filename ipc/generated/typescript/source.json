@@ -1,0 +1,14 @@
+{
+  "source": "tufhelper2/ipc/main.tsp",
+  "contractId": "tufhelperlite",
+  "contractHash": "04ac41343e4fc495e309226c68542aab6efa96af40cb7d532edfb20d0996a964",
+  "contractSourceSha256": "5ab32e5de2347b4e702d279b5b8b32a82e1bbd51b40362bac2447012f212a6ee",
+  "generatorVersion": "2.0.0",
+  "files": {
+    ".adofai-ipc.generated.json": "2344155545b1fe7648cf99f109161bf6ef8d794385de864ca27ab09f8c98c3a1",
+    "index.ts": "1aa4258a47dcab6d8ec120585960b1f346a5b8b89c88bb59b96357c554a7888c",
+    "index.js": "ca78d9667c91385e4cb5707660868bdaaf0309b9cac9fecedd619a6b684967e5",
+    "index.d.ts": "0643ddd9c514a93e8deb16a6dbddeb86387947baaf115b4dcd72efa7237e97e8",
+    "package.json": "f9e9090004ddb9403aa146a9401dac55c14ddb78bd106266dff520d39206af10"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "tufhelper-ipc-contract",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "adofai-ipc generate --config adofai-ipc.config.json && node pin-generated.mjs",
+    "check": "adofai-ipc generate --config adofai-ipc.config.json --check && node pin-generated.mjs --check"
+  },
+  "devDependencies": {
+    "@adofai-ipc/typespec": "file:../vendor/adofai-ipc-typespec/adofai-ipc-typespec-2.0.0.tgz"
+  }
+}

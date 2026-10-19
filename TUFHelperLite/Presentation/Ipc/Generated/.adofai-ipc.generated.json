@@ -1,0 +1,6 @@
+{
+  "generator": "@adofai-ipc/typespec",
+  "files": [
+    "TufHelper.g.cs"
+  ]
+}
