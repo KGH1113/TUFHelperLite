@@ -3,12 +3,12 @@
   "contractId": "tufhelperlite",
   "contractHash": "138c3a5a65977de8b1880a66d1b0011a8d16a4f98614bd2416c69beb67f2ec88",
   "contractSourceSha256": "b4ba7b1717ae839277df808174a79e37c86e5d0d394b1a8d22716627788e4633",
-  "generatorVersion": "2.0.0",
+  "generatorVersion": "2.1.0",
   "files": {
     ".adofai-ipc.generated.json": "2344155545b1fe7648cf99f109161bf6ef8d794385de864ca27ab09f8c98c3a1",
     "index.ts": "47e495dbbf7a24de623c57134dd64d2f6701c44d1107c11734dd55fd3c7f28bc",
     "index.js": "b9ef62f09f65c470bf4b145b5c2c07ad8746867efe00f37bea1c356f6eb748d1",
     "index.d.ts": "d420d505f3be9fe70f77ac1692f696f5f3f2a27d70fc184f461feecd0ada636c",
-    "package.json": "f9e9090004ddb9403aa146a9401dac55c14ddb78bd106266dff520d39206af10"
+    "package.json": "aa60c312c68d4d15ac7f5080a7cb8f2e8ce4cefe1b2d7e42cc9cb9ba308ab68a"
   }
 }

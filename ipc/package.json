@@ -7,6 +7,6 @@
     "check": "adofai-ipc generate --config adofai-ipc.config.json --check && node pin-generated.mjs --check"
   },
   "devDependencies": {
-    "@adofai-ipc/typespec": "file:../vendor/adofai-ipc-typespec/adofai-ipc-typespec-2.0.0.tgz"
+    "@adofai-ipc/typespec": "file:../vendor/adofai-ipc-typespec/adofai-ipc-typespec-2.1.0.tgz"
   }
 }

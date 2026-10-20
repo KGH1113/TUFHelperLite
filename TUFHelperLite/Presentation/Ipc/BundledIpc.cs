@@ -12,7 +12,7 @@ public static class IpcRuntime
     string mods = Directory.GetParent(Path.GetFullPath(modRoot.TrimEnd(
       Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))).FullName;
     Current = IpcLoader.GetRuntime(mods, new RuntimeRequirements(
-      minimumRuntimeVersion: "2.0.0",
+      minimumRuntimeVersion: "2.1.0",
       requiredCapabilities: new[] { "commands", "game-thread", "snapshots", "downloads" }));
   }
 }

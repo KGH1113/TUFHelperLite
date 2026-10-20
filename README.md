@@ -59,8 +59,9 @@ receives a fresh snapshot. Starting or cancelling a job is never replayed
 automatically after a lost connection.
 
 The contract source is `ipc/main.tsp` in this repository. Generated C# is
-compiled into the mod; the generated TypeScript package and SDK are pinned in
-the frontend's `vendor/` directory. Each repository builds from its own files.
+compiled into the mod; the generated TypeScript package is pinned in the
+frontend's `vendor/` directory. The frontend installs `adofai-ipc@2.1.0` from npm with
+an exact version and lockfile integrity. Each repository builds independently.
 
 ### Updating the contract
 
@@ -71,13 +72,15 @@ npm --prefix ipc run check
 TUFHELPER_LITE_SKIP_INSTALL=1 ./scripts/run.sh build
 ```
 
-Generation uses the versioned tool archive in `vendor/adofai-ipc-typespec/`.
+Generation uses the 2.1.0 tool archive in `vendor/adofai-ipc-typespec/`.
 Copy the complete `ipc/generated/typescript/` directory to the frontend's
 `vendor/tufhelper-ipc/` directory, then run `npm ci`, `npm run sdk:check` and
 `npm run test:ipc` in that repository. `source.json`
 records the contract hash, source checksum and generator version. Generated
 files are not edited manually; `ipc/SHA256SUMS` verifies the pinned inputs and
 outputs. Runtime DLLs remain pinned separately in `vendor/adofai-ipc-runtime/`.
+The helper's download methods fetch remote charts into the game's managed library;
+they do not transfer files between the mod and browser.
 
 ## Runtime
 
@@ -85,7 +88,7 @@ Required at runtime:
 
 - A Dance of Fire and Ice
 - UnityModManager
-- ADOFAI-IPC 2.0.0 DLL bundle included with the mod (contract major 1, wire major 3).
+- ADOFAI-IPC 2.1.0 DLL bundle included with the mod (contract major 1, wire major 3).
 - TUFHelperLite installed under the ADOFAI `Mods/TUFHelperLite` directory
 
 ## Build

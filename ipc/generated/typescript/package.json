@@ -13,6 +13,6 @@
     }
   },
   "dependencies": {
-    "adofai-ipc": "file:../adofai-ipc"
+    "adofai-ipc": "2.1.0"
   }
 }

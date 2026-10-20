@@ -132,7 +132,7 @@ internal static partial class Program
       server = new IpcServer(registry);
       Type type = typeof(IpcRegistry).Assembly.GetType("AdofaiIpc.Runtime.RoutedRuntime", throwOnError: true);
       var runtime = (IIpcRuntime)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.NonPublic, null,
-        new object[] { registry, new RuntimeInfo("2.0.0", 1, 3, "commands", "game-thread", "snapshots", "downloads"),
+        new object[] { registry, new RuntimeInfo("2.1.0", 1, 3, "commands", "game-thread", "snapshots", "downloads", "typed-files"),
           (Action<Action>)(action => action()), (Func<bool>)(() => false) }, null);
       IpcRegistration.Register(runtime, configureNativePicker: false);
       IpcRegistration.MarkReady();
