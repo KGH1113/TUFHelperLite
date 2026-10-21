@@ -10,6 +10,7 @@ source "$SCRIPTS_DIR/lib/context.sh"
 source "$SCRIPTS_DIR/lib/logging.sh"
 
 run_task "Validate local build inputs" "$TASKS_DIR/validate/local-build-inputs.sh"
+run_task "Verify deployed updater compatibility inputs" bash "$TASKS_DIR/verify/legacy-update.sh"
 run_task "Build bootstrap (Debug)" "$TASKS_DIR/build/bootstrap.sh" Debug
 run_task "Build mod (Debug)" "$TASKS_DIR/build/mod.sh" Debug
 run_task "Run C# tests" "$TASKS_DIR/test/csharp.sh"

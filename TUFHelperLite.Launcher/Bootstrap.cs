@@ -14,6 +14,7 @@ public static class EntryPoint
     RuntimeStore store = new(modEntry.Path);
     try
     {
+      TUFHelperLite.BundledIpc.SdkMigration.Prepare(modEntry.Path, modEntry.Path, loadAssemblies: false);
       RuntimeState state = store.LoadAndRepair();
       RuntimeCandidate current = store.GetCandidate(state.Current);
       modEntry.Info.Version = current.Version;

@@ -1,5 +1,8 @@
 using TUFHelperLite.Presentation.Ipc;
 using System;
+using System.IO;
+using System.Runtime.CompilerServices;
+using TUFHelperLite.BundledIpc;
 using TUFHelperLite.Features;
 using TUFHelperLite.App;
 using TUFHelperLite.Infrastructure.Settings;
@@ -26,6 +29,26 @@ public sealed class Main
   }
 
   public static bool Load(UnityModManager.ModEntry modEntry)
+  {
+    try
+    {
+      string source = Path.GetDirectoryName(typeof(Main).Assembly.Location);
+      SdkMigration.CleanupRetired(modEntry.Path);
+      SdkMigration.Prepare(source, modEntry.Path);
+      if (!LoadCore(modEntry)) return false;
+      SdkMigration.Commit(source, modEntry.Path);
+      modEntry.Logger.Log("[SdkMigration] SDK active; legacy IPC installation entrypoint removed.");
+      return true;
+    }
+    catch (Exception e)
+    {
+      modEntry.Logger.Error("[SdkMigration] " + e);
+      return false;
+    }
+  }
+
+  [MethodImpl(MethodImplOptions.NoInlining)]
+  private static bool LoadCore(UnityModManager.ModEntry modEntry)
   {
     try
     {

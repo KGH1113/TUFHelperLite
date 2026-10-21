@@ -6,6 +6,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
+using System.Runtime.Loader;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -19,7 +20,7 @@ internal static class Program
 {
   private const string LegacyFixtureSha256 =
     "ffbb08d28d5189528f4d64906d90e22e9f22eb23a433409e158f983c6b31cc55";
-  private const string CurrentVersion = "0.2.1";
+  private const string CurrentVersion = "1.0.0";
   private static readonly List<string> Failures = new();
 
   private static int Main()
@@ -40,6 +41,9 @@ internal static class Program
       VerifyLegacySeedAndStateRecovery(root);
       VerifyPayloadFallbackBoundary(root);
       VerifySameRunCandidateResolution(root);
+      VerifyRetiredCleanup(root);
+      if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("TUFHELPER_LITE_PACKAGE_UNDER_TEST")))
+        VerifyPublishedUpdaterMigration(root, package);
     }
     catch (Exception exception)
     {
@@ -68,6 +72,107 @@ internal static class Program
     Equal("stable release selected", nextVersion, selection?.Version);
     True("equal release skipped", UpdateManager.SelectRelease(json, nextVersion) == null);
     True("prerelease skipped", UpdateManager.SelectRelease(ReleaseJson(nextVersion, 1234, true), CurrentVersion) == null);
+  }
+
+  private static void VerifyPublishedUpdaterMigration(string root, string package)
+  {
+    string published = Required("TUFHELPER_LITE_PUBLISHED_019");
+    string modRoot = Path.Combine(root, "Published019", "Mods", "TUFHelperLite");
+    CopyDirectory(published, modRoot);
+    string data = Path.Combine(modRoot, "Data", "migration-sentinel.json");
+    Directory.CreateDirectory(Path.GetDirectoryName(data));
+    File.WriteAllText(data, "preserve published user data");
+    string before = File.ReadAllText(Path.Combine(modRoot, "Info.json"));
+    AssemblyLoadContext oldContext = new("published-helper-019", true);
+    try
+    {
+      Assembly oldEngine = oldContext.LoadFromAssemblyPath(Path.Combine(published, "Assets", "AdofaiIpc", "TUFHelperLite.UpdateEngine.dll"));
+      Type installer = oldEngine.GetType("TUFHelperLite.UpdateEngine.RuntimePackageInstaller", true);
+      byte[] packageBytes = File.ReadAllBytes(package);
+      int downloads = 0;
+      using HttpClient network = new(new FakeHandler((request, _) =>
+      {
+        if (request.RequestUri.Host == "api.github.com") return Response(ReleaseJson(CurrentVersion, packageBytes.Length, false));
+        if (request.RequestUri.AbsolutePath.EndsWith(".sha256")) return Response(Sha256(package) + "  TUFHelperLite.zip");
+        downloads++;
+        return Response(packageBytes);
+      }));
+      Type manager = oldEngine.GetType("TUFHelperLite.UpdateEngine.UpdateManager", true);
+      object oldManager = Activator.CreateInstance(manager, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+        null, new object[] { modRoot, network }, null);
+      object resolution = manager.GetMethod("Resolve").Invoke(oldManager, new object[] { "0.1.9" });
+      string runtime = (string)resolution.GetType().GetProperty("RuntimePath").GetValue(resolution);
+      Equal("published updater downloads final public ZIP", 1, downloads);
+      Equal("published updater returns required bootstrap path", Path.Combine(runtime, "AdofaiIpc.Bootstrap.dll"),
+        (string)resolution.GetType().GetProperty("DependencyBootstrapPath").GetValue(resolution));
+      installer.GetMethod("ValidateCandidate", BindingFlags.Public | BindingFlags.Static)
+        .Invoke(null, new object[] { runtime, CurrentVersion });
+      Equal("published updater extracts genuine bootstrap", Sha256(Path.Combine(published, "Assets", "AdofaiIpc", "AdofaiIpc.Bootstrap.dll")),
+        Sha256(Path.Combine(runtime, "AdofaiIpc.Bootstrap.dll")));
+      True("published updater retains SDK payload", File.Exists(Path.Combine(runtime, "Assets", "IpcMigration", "ipc", "manifest.json")));
+      string bootstrapState = Path.Combine(modRoot, "DependencyBootstrap", "state.json");
+      Directory.CreateDirectory(Path.GetDirectoryName(bootstrapState));
+      File.WriteAllText(bootstrapState, "{\"SchemaVersion\":1,\"Current\":\"0.0.1\"}");
+      Assembly shim = oldContext.LoadFromAssemblyPath(Path.Combine(published, "Assets", "AdofaiIpc", "AdofaiIpc.DependencyShim.dll"));
+      string staged = (string)shim.GetType("AdofaiIpc.DependencyShim.DependencyShim", true)
+        .GetMethod("StageCandidate").Invoke(null, new object[] { modRoot, Path.Combine(runtime, "AdofaiIpc.Bootstrap.dll") });
+      True("published shim accepts migration bootstrap", !string.IsNullOrWhiteSpace(staged));
+
+      TUFHelperLite.BundledIpc.SdkMigration.Prepare(runtime, modRoot);
+      Equal("entrypoint not committed before core succeeds", before, File.ReadAllText(Path.Combine(modRoot, "Info.json")));
+      True("SDK resolves from published runtime in same launch", File.Exists(Path.Combine(runtime, "AdofaiIpc.Loader.dll")));
+      RuntimeStore store = new(modRoot);
+      store.Save(new RuntimeState { Current = CurrentVersion, Previous = "0.1.9" });
+      TUFHelperLite.BundledIpc.SdkMigration.Commit(runtime, modRoot);
+      True("SDK entrypoint committed", File.ReadAllText(Path.Combine(modRoot, "Info.json")).Contains(TUFHelperLite.BundledIpc.SdkMigration.LauncherFor(CurrentVersion)));
+      False("legacy load ordering removed", File.ReadAllText(Path.Combine(modRoot, "Info.json")).Contains("LoadAfter"));
+      Equal("recovery core refreshed", Sha256(Path.Combine(runtime, "TUFHelperLite.Core.dll")), Sha256(Path.Combine(modRoot, "TUFHelperLite.Core.dll")));
+      TUFHelperLite.BundledIpc.SdkMigration.Prepare(modRoot, modRoot);
+      True("committed versioned launcher survives next startup", File.Exists(Path.Combine(modRoot, TUFHelperLite.BundledIpc.SdkMigration.LauncherFor(CurrentVersion))));
+      Equal("next-launch current runtime retained", CurrentVersion, store.LoadAndRepair().Current);
+      Equal("published user data preserved", "preserve published user data", File.ReadAllText(data));
+
+      string manual = Path.Combine(root, "ManualReinstall");
+      CopyDirectory(modRoot, manual);
+      File.WriteAllText(Path.Combine(manual, "Runtime", "state.json"), "{\"SchemaVersion\":1,\"Current\":\"0.1.9\"}");
+      File.Copy(Required("TUFHELPER_LITE_CORE_DLL"), Path.Combine(manual, "TUFHelperLite.Core.dll"), true);
+      Equal("manual reinstall promotes packaged version offline", CurrentVersion, new RuntimeStore(manual).LoadAndRepair().Current);
+
+      string invalid = Path.Combine(root, "IncompleteMigration");
+      CopyDirectory(runtime, invalid);
+      File.Delete(Path.Combine(invalid, "Assets", "IpcMigration", "AdofaiIpc.Loader.dll"));
+      Throws<InvalidDataException>("incomplete SDK rejected before entrypoint commit",
+        () => TUFHelperLite.BundledIpc.SdkMigration.Prepare(invalid, modRoot));
+      Console.WriteLine("Published Helper v0.1.9 installer + shim accepted final ZIP; SDK promotion and next-launch state verified.");
+    }
+    finally { oldContext.Unload(); }
+  }
+
+  private static void VerifyRetiredCleanup(string root)
+  {
+    string game = Path.Combine(root, "RetiredCleanup");
+    string mod = Path.Combine(game, "Mods", "TUFHelperLite");
+    Directory.CreateDirectory(mod);
+    string retired = Path.Combine(game, ".adofai-ipc-retired");
+    string owned = Path.Combine(retired, "AdofaiIpc-0123");
+    string unrelated = Path.Combine(retired, "OtherMod");
+    Directory.CreateDirectory(owned);
+    Directory.CreateDirectory(unrelated);
+    File.WriteAllText(Path.Combine(owned, "legacy.dll"), "retired");
+    File.WriteAllText(Path.Combine(unrelated, "sentinel"), "keep");
+    TUFHelperLite.BundledIpc.SdkMigration.CleanupRetired(mod);
+    False("owned retired IPC removed", Directory.Exists(owned));
+    True("unrelated retired directory preserved", File.Exists(Path.Combine(unrelated, "sentinel")));
+    string linked = Path.Combine(retired, "AdofaiIpc-linked");
+    Directory.CreateDirectory(linked);
+    string outside = Path.Combine(game, "Outside");
+    Directory.CreateDirectory(outside);
+    File.WriteAllText(Path.Combine(outside, "sentinel"), "keep");
+    try { Directory.CreateSymbolicLink(Path.Combine(linked, "escape"), outside); }
+    catch (Exception exception) when (exception is UnauthorizedAccessException || exception is PlatformNotSupportedException || exception is IOException) { return; }
+    TUFHelperLite.BundledIpc.SdkMigration.CleanupRetired(mod);
+    True("retired directory with symlink skipped", Directory.Exists(linked));
+    True("symlink target untouched", File.Exists(Path.Combine(outside, "sentinel")));
   }
 
   private static void VerifyVersionContract()

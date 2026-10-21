@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using Newtonsoft.Json.Linq;
 
 namespace TUFHelperLite.BundledIpc;
@@ -16,6 +17,7 @@ internal static class BundledIpcFiles
   };
   public static void Validate(string root)
   {
+    root = ResolveSource(root);
     foreach (string name in Files)
       if (!File.Exists(Path.Combine(root, name)))
         throw new InvalidDataException("The mod package has no complete IPC v2 bundle.");
@@ -40,9 +42,12 @@ internal static class BundledIpcFiles
   public static void Copy(string source, string destination)
   {
     Validate(source);
+    source = ResolveSource(source);
     foreach (string name in Files)
     {
       string target = Path.Combine(destination, name);
+      if (Path.GetFullPath(Path.Combine(source, name)) == Path.GetFullPath(target)) continue;
+      if (FileContentsEqual(Path.Combine(source, name), target)) continue;
       Directory.CreateDirectory(Path.GetDirectoryName(target));
       string temporary = target + ".ipc-" + Guid.NewGuid().ToString("N");
       try
@@ -54,4 +59,17 @@ internal static class BundledIpcFiles
       finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
   }
+
+  internal static bool FileContentsEqual(string source, string target)
+  {
+    if (!File.Exists(target) || new FileInfo(source).Length != new FileInfo(target).Length) return false;
+    using SHA256 sha = SHA256.Create();
+    using FileStream first = File.OpenRead(source);
+    using FileStream second = File.OpenRead(target);
+    return sha.ComputeHash(first).SequenceEqual(sha.ComputeHash(second));
+  }
+
+  private static string ResolveSource(string root) =>
+    File.Exists(Path.Combine(root, "Assets", "IpcMigration", "ipc", "manifest.json"))
+      ? Path.Combine(root, "Assets", "IpcMigration") : root;
 }

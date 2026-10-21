@@ -62,6 +62,16 @@ internal sealed class RuntimeStore
         state = ReadState(_statePath);
       }
     }
+    // A manual reinstall may replace the flat package while preserving Data and
+    // the previous runtime state. Prefer that newer local package even offline.
+    string flatInfo = Path.Combine(_installPath, "Info.json");
+    Match flatVersion = File.Exists(flatInfo) ? VersionPattern.Match(File.ReadAllText(flatInfo)) : Match.Empty;
+    if (flatVersion.Success && Version.TryParse(flatVersion.Groups[1].Value, out Version installed) &&
+        Version.TryParse(state.Current, out Version selected) && installed > selected)
+    {
+      SeedLegacyPayload();
+      state = ReadState(_statePath);
+    }
     if (!string.IsNullOrWhiteSpace(state.Trial))
     {
       DeleteUnreferencedRuntime(state.Trial, state);

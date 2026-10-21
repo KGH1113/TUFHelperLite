@@ -13,6 +13,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="../TUFHelperLite.Launcher/BundledIpcFiles.cs" Link="BundledIpcFiles.cs" />
+    <Compile Include="../TUFHelperLite.Launcher/SdkMigration.cs" Link="SdkMigration.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="UnityModManager">
       <HintPath>$(UnityModManagerDll)</HintPath>
       <Private>false</Private>

@@ -111,18 +111,20 @@ Validate the shell workflow:
 ./scripts/run.sh check
 ```
 
-Local builds verify `vendor/adofai-ipc-runtime/SHA256SUMS`. Contracts and Loader are copied to the mod root; Runtime and manifest are copied to `ipc/`. No common IPC mod or dependency bootstrap is installed. IPC minimum runtime 2.0.0 and required capabilities are checked before feature registration. Disabling the mod disposes its registration and keeps the process host running.
+Local builds verify `vendor/adofai-ipc-runtime/SHA256SUMS`. The SDK is packaged under `Assets/IpcMigration/` and promoted to the mod root before the core starts. IPC minimum runtime 2.0.0 and required capabilities are checked before feature registration. Disabling the mod disposes its registration and keeps the process host running.
 
 The package command creates both `build/TUFHelperLite.zip` and
 `build/TUFHelperLite.zip.sha256`. Upload both files, without renaming them, to a
 stable GitHub release tagged `vX.Y.Z`; `X.Y.Z` must match `Info.json`.
 
-TUFHelperLite 0.2.1 uses a fixed launcher and versioned runtimes. The launcher
+TUFHelperLite uses a fixed launcher and versioned runtimes. The launcher
 checks the latest stable GitHub release before loading the core, verifies the
 ZIP and checksum, and can activate a newer runtime in the same game launch.
 Network or verification failures leave the current runtime untouched.
 
-The IPC v2 transition requires one full manual reinstall and game restart from an older dependency-shim installation. The v2 launcher continues to verify and stage TUFHelperLite updates; candidate packages must contain the entire compatible IPC bundle. Files are replaced by rename, and an IPC runtime already selected by another mod is kept until restart.
+Starting with 1.0.0, the same `TUFHelperLite.zip` supports manual installation and automatic updates from the published 0.1.9 dependency launcher. The package retains genuine legacy bootstrap controls for updater validation, while its active entrypoint uses the bundled SDK. The core stages the SDK before initialization and commits the SDK entrypoint only after initialization succeeds. The old launcher then records the active runtime normally. Settings and downloaded levels are preserved. No manual reinstall is needed for that transition.
+
+The legacy compatibility files must remain in the next several releases so users can skip the first transition release. Packaging downloads and verifies the immutable published 0.1.9 ZIP as the compatibility source. The final ZIP is tested with both the current installer and the actual published 0.1.9 installer. An IPC runtime already selected by another SDK mod is kept until restart.
 
 ### 0.2.1 highlights
 

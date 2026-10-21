@@ -58,6 +58,7 @@ internal static class RuntimePackageInstaller
     {
       Directory.CreateDirectory(staging);
       ExtractCandidate(archivePath, staging, version, modRoot);
+      TUFHelperLite.BundledIpc.BundledIpcFiles.Copy(staging, staging);
       ValidateCandidate(staging, version);
       Directory.CreateDirectory(versionsRoot);
       Directory.Move(staging, target);
@@ -140,7 +141,10 @@ internal static class RuntimePackageInstaller
       "TUFHelperLite.Launcher.dll", "TUFHelperLite.UpdateEngine.dll"
     };
     foreach (string control in controls)
-      if (!packagePaths.Contains(control))
+      if (!packagePaths.Contains(control) &&
+          !packagePaths.Contains("Assets/IpcMigration/" + control) &&
+          !(control == "TUFHelperLite.UpdateEngine.dll" &&
+            packagePaths.Contains("Assets/AdofaiIpc/TUFHelperLite.UpdateEngine.dll")))
         throw new InvalidDataException("TUFHelperLite update archive is missing " + control + ".");
 
     UpdateDiskSpacePolicy.EnsureSufficientSpace(
@@ -176,6 +180,10 @@ internal static class RuntimePackageInstaller
 
   private static string MapCandidatePath(string path)
   {
+    if (path.Equals("Assets/AdofaiIpc/TUFHelperLite.UpdateEngine.dll", StringComparison.OrdinalIgnoreCase))
+      return "TUFHelperLite.UpdateEngine.dll";
+    if (path.StartsWith("Assets/AdofaiIpc/", StringComparison.OrdinalIgnoreCase))
+      return null;
     if (path.Equals("TUFHelperLite.Launcher.dll", StringComparison.OrdinalIgnoreCase))
       return null;
     return IsPackagePath(path) ? path : null;
@@ -191,11 +199,11 @@ internal static class RuntimePackageInstaller
            path.Equals("ipc/AdofaiIpc.Runtime.dll", StringComparison.OrdinalIgnoreCase) ||
            path.Equals("ipc/manifest.json", StringComparison.OrdinalIgnoreCase) ||
            path.Equals("Info.json", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("AdofaiIpcBootstrap.json", StringComparison.OrdinalIgnoreCase) ||
            path.Equals("THIRD_PARTY_NOTICES.md", StringComparison.OrdinalIgnoreCase) ||
            path.Equals("TUFHelperLite.Core.pdb", StringComparison.OrdinalIgnoreCase) ||
            path.StartsWith("Notices/", StringComparison.OrdinalIgnoreCase) ||
-           (path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) &&
-            !path.StartsWith("Assets/AdofaiIpc/", StringComparison.OrdinalIgnoreCase));
+           path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase);
   }
 
   private static string NormalizeArchivePath(string value)

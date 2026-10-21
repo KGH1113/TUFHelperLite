@@ -11,6 +11,7 @@ source "$SCRIPTS_DIR/lib/logging.sh"
 
 run_task "Validate package inputs" "$TASKS_DIR/validate/package-inputs.sh"
 run_task "Verify AdofaiIpc dependency" "$TASKS_DIR/verify/adofai-ipc.sh"
+run_task "Verify deployed updater compatibility inputs" bash "$TASKS_DIR/verify/legacy-update.sh"
 run_task "Build bootstrap (Release)" "$TASKS_DIR/build/bootstrap.sh" Release
 run_task "Build mod (Release)" "$TASKS_DIR/build/mod.sh" Release
 run_task "Validate Unity/Mono compatibility" \
@@ -23,8 +24,8 @@ run_task "Stage mod package" "$TASKS_DIR/package/stage.sh"
 run_task "Validate staged Unity/Mono compatibility" \
   "$TASKS_DIR/validate/unity-mono-compatibility.sh" \
   "$TUFHELPER_LITE_PACKAGE_STAGE/TUFHelperLite.Core.dll" \
-  "$TUFHELPER_LITE_PACKAGE_STAGE/TUFHelperLite.Launcher.dll" \
-  "$TUFHELPER_LITE_PACKAGE_STAGE/TUFHelperLite.UpdateEngine.dll"
+  "$TUFHELPER_LITE_PACKAGE_STAGE/Assets/IpcMigration/TUFHelperLite.Launcher.dll" \
+  "$TUFHELPER_LITE_PACKAGE_STAGE/Assets/IpcMigration/TUFHelperLite.UpdateEngine.dll"
 run_task "Create mod archive" "$TASKS_DIR/package/archive.sh"
 run_task "Write checksum" "$TASKS_DIR/package/checksum.sh"
 run_task "Verify final package compatibility" env \
