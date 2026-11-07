@@ -2,7 +2,7 @@
   "Id": "TUFHelperLite",
   "DisplayName": "TUFHelperLite",
   "Author": "impl",
-  "Version": "1.0.0",
+  "Version": "1.0.1",
   "AssemblyName": "Assets/IpcMigration/TUFHelperLite.Launcher.dll",
   "EntryMethod": "TUFHelperLite.Launcher.EntryPoint.Load"
 }
