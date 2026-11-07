@@ -23,6 +23,8 @@ internal static partial class Program
   private static int Main(string[] args)
   {
     if (Array.IndexOf(args, "--serve-ipc") >= 0) return ServeIpc();
+    // The game's Mono runtime ships the CJK code pages; .NET needs the code page provider.
+    System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
     string root = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Downloads");
     if (Directory.Exists(root)) Directory.Delete(root, true);
     try
@@ -53,6 +55,7 @@ internal static partial class Program
         CreateLevel(root, "tuf-0", "chart.adofai")));
       Check("file directly under root", null, LevelContextResolver.ResolveTufLevelId(
         CreateLevel(root, "", "chart.adofai")));
+      RunZipExtractorTests();
       RunDiskSpacePolicyTests();
       RunCancellationTests();
       RunActivityChangeTests();
