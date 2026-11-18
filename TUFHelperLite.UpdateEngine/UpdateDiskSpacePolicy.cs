@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using TUFHelperLite.Infrastructure.Downloads;
 
 namespace TUFHelperLite.UpdateEngine;
 
@@ -18,10 +19,10 @@ internal static class UpdateDiskSpacePolicy
   public static void EnsureSufficientSpace(string path, long requiredBytes, string errorMessage)
   {
     if (requiredBytes < 0) throw new ArgumentOutOfRangeException(nameof(requiredBytes));
+    if (!DiskSpaceProbe.TryGetSpace(path, out long availableBytes, out long totalBytes)) return;
 
-    DriveInfo drive = GetDrive(path);
-    long reserve = CalculateReserveBytes(drive.TotalSize);
-    if (drive.AvailableFreeSpace < reserve || requiredBytes > drive.AvailableFreeSpace - reserve)
+    long reserve = CalculateReserveBytes(totalBytes);
+    if (availableBytes < reserve || requiredBytes > availableBytes - reserve)
       throw new IOException(errorMessage);
   }
 
@@ -29,13 +30,5 @@ internal static class UpdateDiskSpacePolicy
   {
     long percentageReserve = totalSize > 0 ? totalSize / 20 : 0;
     return Math.Max(MinimumReserveBytes, Math.Min(MaximumReserveBytes, percentageReserve));
-  }
-
-  private static DriveInfo GetDrive(string path)
-  {
-    string root = Path.GetPathRoot(Path.GetFullPath(path));
-    if (string.IsNullOrWhiteSpace(root))
-      throw new IOException("Could not determine the destination drive.");
-    return new DriveInfo(root);
   }
 }

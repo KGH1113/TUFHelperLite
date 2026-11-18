@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using TUFHelperLite.Domain.Errors;
 
 namespace TUFHelperLite.Infrastructure.Downloads;
@@ -32,28 +31,18 @@ internal static class DiskSpacePolicy
 
   internal static void EnsureSufficientSpace(string path, long requiredBytes, string errorMessage)
   {
-    DriveInfo drive = GetDrive(path);
-    if (!HasSufficientSpace(drive.AvailableFreeSpace, drive.TotalSize, requiredBytes))
+    if (!DiskSpaceProbe.TryGetSpace(path, out long availableBytes, out long totalBytes)) return;
+
+    if (!HasSufficientSpace(availableBytes, totalBytes, requiredBytes))
     {
-      long reserve = CalculateReserveBytes(drive.TotalSize);
+      long reserve = CalculateReserveBytes(totalBytes);
       long totalRequired = requiredBytes > long.MaxValue - reserve
         ? long.MaxValue
         : requiredBytes + reserve;
       throw new InsufficientDiskSpaceException(
         errorMessage,
-        drive.AvailableFreeSpace,
+        availableBytes,
         totalRequired);
     }
-  }
-
-  private static DriveInfo GetDrive(string path)
-  {
-    string root = Path.GetPathRoot(Path.GetFullPath(path));
-    if (string.IsNullOrWhiteSpace(root))
-    {
-      throw new IOException("Could not determine the destination drive.");
-    }
-
-    return new DriveInfo(root);
   }
 }

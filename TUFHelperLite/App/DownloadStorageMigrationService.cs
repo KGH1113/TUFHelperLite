@@ -350,15 +350,10 @@ public static class DownloadStorageMigrationService
     long bytes = Directory.Exists(source)
       ? StorageFiles(source).Sum(path => new FileInfo(path).Length)
       : 0;
-    try
-    {
-      DriveInfo drive = new(Path.GetPathRoot(target));
-      if (!DiskSpacePolicy.HasSufficientSpace(drive.AvailableFreeSpace, drive.TotalSize, bytes))
-        throw new DownloadStorageMigrationException("insufficient_disk_space",
-          "The selected folder does not have enough free space for the migration.");
-    }
-    catch (DownloadStorageMigrationException) { throw; }
-    catch { }
+    if (DiskSpaceProbe.TryGetSpace(target, out long availableBytes, out long totalBytes) &&
+        !DiskSpacePolicy.HasSufficientSpace(availableBytes, totalBytes, bytes))
+      throw new DownloadStorageMigrationException("insufficient_disk_space",
+        "The selected folder does not have enough free space for the migration.");
   }
 
   private static void QueueWorkerLocked()

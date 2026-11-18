@@ -127,6 +127,23 @@ internal static partial class Program
     CheckLong("known download remaining bytes", 60, DiskSpacePolicy.CalculateRemainingBytes(100, 40));
     CheckLong("completed download remaining bytes", 0, DiskSpacePolicy.CalculateRemainingBytes(100, 100));
 
+    const string gamePath = "/home/player/.local/share/Steam/steamapps/common/Game";
+    CheckString("deepest mount wins", "/home/player", DiskSpaceProbe.SelectMountPoint(
+      gamePath, new[] { "/", "/home", "/home/player" }));
+    CheckString("mount found without a listed root", "/home", DiskSpaceProbe.SelectMountPoint(
+      gamePath, new[] { "/run/host", "/home" }));
+    CheckString("mount with trailing separator", "/home/", DiskSpaceProbe.SelectMountPoint(
+      gamePath, new[] { "/", "/home/" }));
+    CheckString("exact mount path", "/home", DiskSpaceProbe.SelectMountPoint(
+      "/home", new[] { "/", "/home" }));
+    CheckString("sibling prefix is not a mount match", "/", DiskSpaceProbe.SelectMountPoint(
+      "/home2/player", new[] { "/", "/home" }));
+    CheckString("unlisted path has no mount", null, DiskSpaceProbe.SelectMountPoint(
+      "/opt/game", new[] { "/run/host", "/home" }));
+    CheckTrue("current volume is measurable", DiskSpaceProbe.TryGetSpace(
+      AppContext.BaseDirectory, out long probedAvailable, out long probedTotal) &&
+      probedAvailable >= 0 && probedTotal > 0);
+
     DownloadJob job = new("tuf", "12345", "https://example.com/level.zip", "tuf-12345", false);
     job.Fail(new InsufficientDiskSpaceException("Not enough storage space.", 512, 2048));
     DownloadJobSnapshot snapshot = job.Snapshot();
