@@ -20,7 +20,7 @@ internal static class Program
 {
   private const string LegacyFixtureSha256 =
     "ffbb08d28d5189528f4d64906d90e22e9f22eb23a433409e158f983c6b31cc55";
-  private const string CurrentVersion = "1.0.1";
+  private const string CurrentVersion = "1.0.2";
   private static readonly List<string> Failures = new();
 
   private static int Main()
